@@ -9,28 +9,21 @@
 ## Файлы
 
 - `titanic_analysis.ipynb` - основной ноутбук с полным анализом
-- `example_correct_approach.py` - пример правильной структуры кода
 
 ## Данные
 
 Датасет можно получить с [Kaggle Titanic Competition](https://www.kaggle.com/c/titanic/data):
 - `train.csv` - обучающие данные (891 строка)
-- `test.csv` - тестовые данные для submission (418 строк)
+- `test.csv` - тестовые данные для submission (418 строк, без колонки Survived)
 
 Разместите файлы в `../../datasets/titanic/`
 
-## Использование
+При запуске ноутбука автоматически создастся файл `../../datasets/titanic/submission.csv` с предсказаниями для Kaggle
 
-### Запуск ноутбука
+## Использование
 
 ```bash
 jupyter notebook titanic_analysis.ipynb
-```
-
-### Запуск примера
-
-```bash
-python example_correct_approach.py
 ```
 
 ## Структура анализа
@@ -40,6 +33,7 @@ python example_correct_approach.py
 3. Предобработка и Feature Engineering
 4. Обучение моделей машинного обучения
 5. Сравнение и оптимизация моделей
+6. Создание submission файла для Kaggle
 
 ## Модели
 
