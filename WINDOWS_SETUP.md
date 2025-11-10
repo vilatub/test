@@ -13,17 +13,30 @@
 
 ## Что уже настроено
 
-### 1. `.gitattributes`
+### 1. `.gitattributes` (Приоритет выше, чем core.autocrlf)
 
 Файл `.gitattributes` автоматически конвертирует line endings при checkout/commit:
 
-```
+```gitattributes
 *.ipynb text eol=lf
 *.py text eol=lf
 *.md text eol=lf
 ```
 
-Это заставляет git всегда хранить эти файлы с LF, независимо от вашей ОС.
+**Что это означает:**
+- `text` = git знает, что это текстовый файл
+- `eol=lf` = **при checkout** git нормализует в LF (переопределяет `core.autocrlf`!)
+
+**Важно:** `.gitattributes` имеет **приоритет выше** чем `core.autocrlf`!
+
+```
+Приоритет (от высшего к низшему):
+1. .gitattributes (в репозитории)
+2. core.autocrlf (в .git/config)
+3. Глобальный core.autocrlf
+```
+
+Поэтому даже если у кого-то `core.autocrlf true`, `.gitattributes` заставит использовать LF.
 
 ### 2. Pre-commit Hook
 
@@ -58,8 +71,22 @@ git config core.autocrlf input
 ```
 
 **Что это делает:**
-- `core.autocrlf input` - при checkout НЕ конвертирует LF в CRLF
-- При commit автоматически конвертирует CRLF в LF
+- `core.autocrlf input` - при **checkout** НЕ конвертирует LF в CRLF
+- При **commit** автоматически конвертирует CRLF в LF
+
+**Означает:**
+```
+Git (LF) → checkout → Рабочая директория (LF)  ← Файлы остаются с LF!
+         ← commit  ← Рабочая директория (CRLF) ← Jupyter сохранил с CRLF
+Git (LF)                                        ← Автоматически конвертируется
+```
+
+**Почему это правильно для Windows:**
+- ✅ Jupyter, VS Code, PyCharm корректно работают с LF
+- ✅ Python скрипты работают с LF (Windows Python понимает оба формата)
+- ✅ Git Bash, WSL работают с LF
+- ✅ Node.js, большинство инструментов разработки работают с LF
+- ⚠️ Только старый Notepad не понимал LF (но в Windows 10+ исправлено)
 
 ### Шаг 2: Пере-checkout файлов (если уже склонировали)
 
@@ -90,6 +117,34 @@ git config core.autocrlf
 - Запуске ячеек
 - Сохранении (Ctrl+S)
 - Auto-save
+
+### Что происходит с Jupyter на Windows:
+
+```
+1. git checkout
+   Git (LF) → Диск: notebook.ipynb (LF)
+
+2. jupyter notebook
+   Открывает: notebook.ipynb (LF) ✅ Читает нормально
+
+3. Работа в Jupyter
+   Запуск ячеек, редактирование...
+
+4. Ctrl+S или Auto-save
+   Сохраняет: notebook.ipynb (CRLF) ⚠️ Jupyter на Windows по умолчанию использует CRLF
+
+5. git add notebook.ipynb
+   Git staging area: (CRLF) ⚠️ Пока еще CRLF
+
+6. git commit
+   → Pre-commit hook запускается!
+   → Обнаруживает CRLF
+   → Конвертирует CRLF → LF
+   → Re-stage файл
+   → Commit продолжается
+
+   Git (LF) ✅ В репозитории всегда LF!
+```
 
 ### Решение: Pre-commit Hook
 
@@ -182,7 +237,37 @@ chmod +x .git/hooks/pre-commit
 ```
 
 **Q: Почему не использовать `core.autocrlf true`?**
-A: `autocrlf true` конвертирует LF→CRLF при checkout, что сломает многие инструменты на Windows (Python, bash скрипты, Jupyter).
+
+A: Сравним три варианта:
+
+| Настройка | Checkout (git → диск) | Commit (диск → git) | Проблемы |
+|-----------|----------------------|---------------------|----------|
+| `false` | LF → LF | Ничего | ⚠️ CRLF попадет в git |
+| `input` | LF → LF | CRLF → LF | ✅ Лучший для Windows |
+| `true` | LF → CRLF | CRLF → LF | ❌ Ломает Python, bash, Jupyter |
+
+**С `autocrlf true`:**
+```bash
+# Файлы получают CRLF при checkout
+git checkout main
+# Python скрипт с CRLF
+python script.py  # Может сломаться!
+# Bash скрипт с CRLF
+./script.sh       # Ошибка: $'\r': command not found
+```
+
+**С `autocrlf input` (наш выбор):**
+```bash
+# Файлы остаются с LF при checkout
+git checkout main
+# Python скрипт с LF
+python script.py  # ✅ Работает (Python понимает LF на Windows)
+# Bash скрипт с LF
+./script.sh       # ✅ Работает (Git Bash понимает LF)
+# Jupyter notebook с LF
+jupyter notebook  # ✅ Открывает нормально
+                  # Может сохранить с CRLF - но hook исправит при commit!
+```
 
 ## Рекомендуемая конфигурация
 
