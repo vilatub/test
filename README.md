@@ -84,6 +84,24 @@ pip install -r requirements.txt
 conda install --file requirements.txt
 ```
 
+## 🖥️ Работа на Windows
+
+**Важно для пользователей Windows:** Jupyter Notebook на Windows может сохранять файлы с Windows line endings (CRLF), что создает проблемы в git.
+
+👉 **См. подробную инструкцию:** [WINDOWS_SETUP.md](WINDOWS_SETUP.md)
+
+**Краткая версия:**
+```bash
+# Настройка git (один раз)
+git config core.autocrlf input
+
+# Pre-commit hook автоматически исправит line endings
+```
+
+Репозиторий уже настроен с `.gitattributes` и pre-commit hook для автоматического решения этой проблемы.
+
+---
+
 ## 🚀 Запуск
 
 ### Локально с Jupyter Notebook
