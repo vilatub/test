@@ -1,0 +1,13 @@
+# Jupyter notebooks should always use LF line endings
+*.ipynb text eol=lf
+
+# Other text files
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# CSV files
+*.csv text eol=lf
