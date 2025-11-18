@@ -1,0 +1,443 @@
+#!/usr/bin/env python3
+"""
+Phase 6: Explainable AI - Part 5 (Final)
+Add: Decision Tree Visualization, Conclusions
+"""
+
+import json
+
+# Загружаем существующий notebook
+notebook_path = '/home/user/test/notebooks/phase6_explainable_ai/01_explainable_ai_xai.ipynb'
+with open(notebook_path, 'r', encoding='utf-8') as f:
+    notebook = json.load(f)
+
+cells = notebook['cells']
+
+# ============================================================================
+# DECISION TREE VISUALIZATION
+# ============================================================================
+
+cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "---\n",
+        "\n",
+        "## 🌳 Часть 6: Decision Tree Visualization\n",
+        "\n",
+        "### Model-Specific Interpretability\n",
+        "\n",
+        "**Decision Trees** - inherently interpretable модели:\n",
+        "- Каждое решение - это simple if-then rule\n",
+        "- Путь от root до leaf объясняет prediction\n",
+        "- Можно визуализировать весь process\n",
+        "\n",
+        "**Преимущества:**\n",
+        "- ✅ **Complete transparency:** видим все правила\n",
+        "- ✅ **Easy to explain:** можно объяснить любому\n",
+        "- ✅ **No preprocessing needed:** работает с categorical features\n",
+        "\n",
+        "**Trade-off:**\n",
+        "- ⚠️ **Accuracy vs Interpretability:**\n",
+        "  - Shallow tree: interpretable, но менее точная\n",
+        "  - Deep tree: точная, но сложная для интерпретации\n",
+        "  - Random Forest / XGBoost: ещё точнее, но black box (нужен SHAP)\n",
+        "\n",
+        "**Когда использовать:**\n",
+        "- ✅ **High-stakes decisions:** медицина, кредиты (нужна полная прозрачность)\n",
+        "- ✅ **Regulatory compliance:** когда требуется объяснение каждого правила\n",
+        "- ✅ **Knowledge extraction:** понять domain logic из данных\n",
+        "\n",
+        "---\n"
+    ]
+})
+
+cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "print(\"=\" * 70)\n",
+        "print(\"DECISION TREE VISUALIZATION\")\n",
+        "print(\"=\" * 70)\n",
+        "\n",
+        "# Обучаем простую Decision Tree для интерпретации\n",
+        "print(\"\\nTraining interpretable Decision Tree (max_depth=4)...\")\n",
+        "dt = DecisionTreeClassifier(\n",
+        "    max_depth=4,  # ограничиваем глубину для interpretability\n",
+        "    min_samples_split=100,\n",
+        "    min_samples_leaf=50,\n",
+        "    random_state=42\n",
+        ")\n",
+        "\n",
+        "dt.fit(X_train_scaled, y_train)\n",
+        "dt_pred = dt.predict(X_test_scaled)\n",
+        "\n",
+        "# Метрики\n",
+        "dt_accuracy = accuracy_score(y_test, dt_pred)\n",
+        "dt_f1 = f1_score(y_test, dt_pred)\n",
+        "dt_auc = roc_auc_score(y_test, dt.predict_proba(X_test_scaled)[:, 1])\n",
+        "\n",
+        "print(f\"\\n✅ Decision Tree trained\")\n",
+        "print(f\"Accuracy: {dt_accuracy:.4f}\")\n",
+        "print(f\"F1-Score: {dt_f1:.4f}\")\n",
+        "print(f\"ROC AUC: {dt_auc:.4f}\")\n",
+        "print(f\"\\nТочность ниже, чем у XGBoost/RF, но дерево полностью interpretable!\")\n"
+    ]
+})
+
+cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "# Визуализация Decision Tree\n",
+        "fig, ax = plt.subplots(figsize=(25, 15))\n",
+        "\n",
+        "plot_tree(\n",
+        "    dt,\n",
+        "    feature_names=feature_cols,\n",
+        "    class_names=['<=50K', '>50K'],\n",
+        "    filled=True,\n",
+        "    rounded=True,\n",
+        "    ax=ax,\n",
+        "    fontsize=10,\n",
+        "    proportion=True  # показываем пропорции вместо абсолютных чисел\n",
+        ")\n",
+        "\n",
+        "plt.title('Decision Tree Visualization (max_depth=4)', fontsize=16, fontweight='bold', pad=20)\n",
+        "plt.tight_layout()\n",
+        "plt.show()\n",
+        "\n",
+        "print(\"\\n📊 Как читать дерево:\")\n",
+        "print(\"- Каждый узел: условие split (e.g., capital-gain <= 0.5)\")\n",
+        "print(\"- gini: impurity (0 = pure, 0.5 = 50/50)\")\n",
+        "print(\"- samples: доля samples в этом узле\")\n",
+        "print(\"- value: [proportion class 0, proportion class 1]\")\n",
+        "print(\"- class: predicted class (цвет показывает majority class)\")\n",
+        "print(\"\\nОранжевый = <=50K, Синий = >50K\")\n"
+    ]
+})
+
+cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "# Текстовое представление правил\n",
+        "print(\"\\n\" + \"=\" * 70)\n",
+        "print(\"DECISION RULES (TEXT FORMAT)\")\n",
+        "print(\"=\" * 70)\n",
+        "\n",
+        "tree_rules = export_text(dt, feature_names=feature_cols)\n",
+        "print(tree_rules)\n",
+        "\n",
+        "print(\"\\n💡 Примеры правил:\")\n",
+        "print(\"- IF capital-gain > 0.5 AND ... → Predicted: >50K\")\n",
+        "print(\"- IF age <= 0.3 AND education-num <= 0.2 → Predicted: <=50K\")\n",
+        "print(\"\\nЭти правила можно показать бизнесу / регуляторам!\")\n"
+    ]
+})
+
+cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "# Feature Importance из Decision Tree\n",
+        "dt_importance = dt.feature_importances_\n",
+        "\n",
+        "importance_df = pd.DataFrame({\n",
+        "    'Feature': feature_cols,\n",
+        "    'Importance': dt_importance\n",
+        "}).sort_values('Importance', ascending=False)\n",
+        "\n",
+        "# Визуализация\n",
+        "fig, ax = plt.subplots(figsize=(10, 6))\n",
+        "\n",
+        "top_n = 12\n",
+        "ax.barh(\n",
+        "    range(top_n),\n",
+        "    importance_df.head(top_n)['Importance'],\n",
+        "    alpha=0.8,\n",
+        "    color='steelblue'\n",
+        ")\n",
+        "\n",
+        "ax.set_yticks(range(top_n))\n",
+        "ax.set_yticklabels(importance_df.head(top_n)['Feature'])\n",
+        "ax.set_xlabel('Feature Importance (Gini)', fontsize=12)\n",
+        "ax.set_title('Decision Tree Feature Importance', fontsize=14, fontweight='bold')\n",
+        "ax.invert_yaxis()\n",
+        "ax.grid(axis='x', alpha=0.3)\n",
+        "\n",
+        "plt.tight_layout()\n",
+        "plt.show()\n",
+        "\n",
+        "print(\"\\n🎯 Топ-5 признаков в Decision Tree:\")\n",
+        "print(importance_df.head(5).to_string(index=False))\n"
+    ]
+})
+
+# ============================================================================
+# COMPREHENSIVE SUMMARY
+# ============================================================================
+
+cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "---\n",
+        "\n",
+        "## 📋 Часть 7: Comprehensive Summary & Best Practices\n",
+        "\n",
+        "### Сравнение всех XAI методов\n",
+        "\n",
+        "| Метод | Scope | Speed | Theory | Use Case |\n",
+        "|-------|-------|-------|--------|----------|\n",
+        "| **SHAP** | Global + Local | ⚠️ Medium (TreeSHAP fast) | ✅ Game theory | Production, требуется consistency |\n",
+        "| **LIME** | Local only | ✅ Fast | ❌ Heuristic | Quick ad-hoc explanations |\n",
+        "| **PDP** | Global | ✅ Fast | ✅ Solid | Global feature effects |\n",
+        "| **Permutation Importance** | Global | ⚠️ Medium | ✅ Solid | True feature importance |\n",
+        "| **Gini Importance** | Global | ✅ Very fast | ⚠️ Biased | Quick check (tree models) |\n",
+        "| **Decision Tree Viz** | Global | ✅ Fast | ✅ Complete | Full transparency |\n",
+        "| **Attention Weights** | Local | ✅ Fast | ⚠️ Debatable | Transformers only |\n",
+        "\n",
+        "---\n",
+        "\n",
+        "### 🎯 Рекомендации по выбору метода\n",
+        "\n",
+        "#### 1. **Production ML System (High Stakes)**\n",
+        "- ✅ **Primary:** SHAP (теоретически обоснован, consistent)\n",
+        "- ✅ **Secondary:** Permutation Importance (global view)\n",
+        "- ✅ **Fairness:** Demographic Parity, Equal Opportunity\n",
+        "- ✅ **Documentation:** Model cards, fairness reports\n",
+        "\n",
+        "**Пример:** Credit scoring, healthcare diagnostics, hiring\n",
+        "\n",
+        "#### 2. **Quick Prototyping / Research**\n",
+        "- ✅ **LIME** (fast local explanations)\n",
+        "- ✅ **PDP** (global trends)\n",
+        "- ✅ **Feature Importance** (quick check)\n",
+        "\n",
+        "**Пример:** Kaggle competition, exploratory analysis\n",
+        "\n",
+        "#### 3. **Regulatory Compliance (Full Transparency)**\n",
+        "- ✅ **Decision Tree** visualization\n",
+        "- ✅ **Rule extraction**\n",
+        "- ✅ **Linear models** с coefficient interpretation\n",
+        "- ⚠️ Возможно придётся жертвовать accuracy\n",
+        "\n",
+        "**Пример:** Regulated industries (banking, insurance), government\n",
+        "\n",
+        "#### 4. **Deep Learning / Transformers**\n",
+        "- ✅ **DeepSHAP** или **GradientSHAP**\n",
+        "- ✅ **Attention visualization** (с осторожностью)\n",
+        "- ✅ **Integrated Gradients**\n",
+        "- ✅ **Saliency Maps** (для images/text)\n",
+        "\n",
+        "**Пример:** NLP, computer vision, time series with Transformers\n",
+        "\n",
+        "---\n",
+        "\n",
+        "### ⚖️ Fairness Best Practices\n",
+        "\n",
+        "1. **Identify Sensitive Attributes:**\n",
+        "   - Gender, race, age, disability status, etc.\n",
+        "   - Legal requirements vary by jurisdiction\n",
+        "\n",
+        "2. **Choose Fairness Metric(s):**\n",
+        "   - **Demographic Parity:** равные positive rates\n",
+        "   - **Equal Opportunity:** равные TPR (часто preferred)\n",
+        "   - **Calibration:** equal calibration по группам\n",
+        "   - ⚠️ **Невозможно** удовлетворить все одновременно!\n",
+        "\n",
+        "3. **Measure Fairness:**\n",
+        "   - На **test set** (не на train!)\n",
+        "   - Для **всех** sensitive groups\n",
+        "   - **Before** и **after** mitigation\n",
+        "\n",
+        "4. **Bias Mitigation:**\n",
+        "   - **Pre-processing:** reweighting, resampling\n",
+        "   - **In-processing:** fairness constraints in loss\n",
+        "   - **Post-processing:** threshold optimization\n",
+        "\n",
+        "5. **Documentation:**\n",
+        "   - **Model Cards** (Google best practice)\n",
+        "   - Fairness metrics in production dashboard\n",
+        "   - Regular audits (quarterly/yearly)\n",
+        "\n",
+        "6. **Continuous Monitoring:**\n",
+        "   - Fairness может drift со временем\n",
+        "   - Data distribution changes → fairness changes\n",
+        "   - Monitor в production!\n",
+        "\n",
+        "---\n",
+        "\n",
+        "### 🚀 Production Deployment Checklist\n",
+        "\n",
+        "**Before deploying ML model:**\n",
+        "\n",
+        "- [ ] **Interpretability:**\n",
+        "  - [ ] SHAP values computed для test set\n",
+        "  - [ ] Global feature importance documented\n",
+        "  - [ ] Local explanation API available\n",
+        "  - [ ] PDP plots generated для топовых features\n",
+        "\n",
+        "- [ ] **Fairness:**\n",
+        "  - [ ] Sensitive attributes identified\n",
+        "  - [ ] Fairness metrics measured (Demographic Parity, Equal Opportunity)\n",
+        "  - [ ] Bias mitigation applied (if needed)\n",
+        "  - [ ] Fairness report документирован\n",
+        "\n",
+        "- [ ] **Documentation:**\n",
+        "  - [ ] Model card created\n",
+        "  - [ ] Training data описана (source, biases, limitations)\n",
+        "  - [ ] Evaluation metrics по всем groups\n",
+        "  - [ ] Known limitations документированы\n",
+        "  - [ ] Ethical considerations discussed\n",
+        "\n",
+        "- [ ] **Monitoring:**\n",
+        "  - [ ] Dashboard для monitoring fairness в production\n",
+        "  - [ ] Alerts на drift в fairness metrics\n",
+        "  - [ ] Logging для SHAP values (sample)\n",
+        "\n",
+        "- [ ] **Legal/Regulatory:**\n",
+        "  - [ ] Legal review completed\n",
+        "  - [ ] GDPR compliance (право на объяснение)\n",
+        "  - [ ] Industry-specific regulations checked\n",
+        "\n",
+        "---\n"
+    ]
+})
+
+cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "### 📚 Key Takeaways\n",
+        "\n",
+        "#### 1. **Interpretability is NOT Optional**\n",
+        "- Регулируемые индустрии требуют объяснений (GDPR, FDA, etc.)\n",
+        "- Stakeholders хотят понимать, как работает модель\n",
+        "- Debugging: interpretability помогает найти bugs и bias\n",
+        "\n",
+        "#### 2. **SHAP - Gold Standard**\n",
+        "- Теоретически обоснован (Shapley values)\n",
+        "- Consistent, local + global\n",
+        "- TreeSHAP очень fast для tree-based моделей\n",
+        "- **Use SHAP в production**\n",
+        "\n",
+        "#### 3. **Different Methods, Different Insights**\n",
+        "- **SHAP:** feature attribution (сколько каждый признак вносит)\n",
+        "- **PDP:** global trends (как признак влияет в среднем)\n",
+        "- **LIME:** quick local explanations\n",
+        "- **Permutation:** true importance (handles correlations)\n",
+        "- **Все вместе** дают comprehensive understanding!\n",
+        "\n",
+        "#### 4. **Fairness ≠ Equal Outcomes**\n",
+        "- Fairness - это про equal treatment, не equal outcomes\n",
+        "- Выбор fairness metric зависит от use case и законодательства\n",
+        "- Trade-off: fairness vs accuracy (иногда неизбежен)\n",
+        "- **Measure, mitigate, monitor**\n",
+        "\n",
+        "#### 5. **Accuracy vs Interpretability Trade-off**\n",
+        "- Simple models (linear, shallow trees): interpretable, но менее точные\n",
+        "- Complex models (deep learning, ensembles): точные, но black box\n",
+        "- **XAI methods** (SHAP, LIME) позволяют использовать complex models с объяснениями\n",
+        "- **Best of both worlds!**\n",
+        "\n",
+        "#### 6. **Documentation & Transparency**\n",
+        "- Model cards - best practice от Google\n",
+        "- Документировать training data, biases, limitations\n",
+        "- Transparency builds trust\n",
+        "- Регуляторы требуют документацию\n",
+        "\n",
+        "#### 7. **Continuous Monitoring**\n",
+        "- Fairness и interpretability не one-time tasks\n",
+        "- Data drift → fairness drift\n",
+        "- Monitor в production, регулярные audits\n",
+        "\n",
+        "---\n",
+        "\n",
+        "### 🔗 Связь с другими фазами\n",
+        "\n",
+        "**Phase 6 использует знания из:**\n",
+        "- **Phase 1-2:** Базовые модели (Logistic Regression, Neural Networks)\n",
+        "- **Phase 3:** Ensemble methods (Random Forest, XGBoost) → TreeSHAP\n",
+        "- **Phase 4:** Transformers → Attention visualization\n",
+        "- **Phase 5:** Anomaly detection → interpretable outliers\n",
+        "\n",
+        "**Phase 6 готовит к:**\n",
+        "- **Phase 7:** Production & MLOps → monitoring fairness, model cards\n",
+        "\n",
+        "---\n",
+        "\n",
+        "### 🎓 Real-World Impact\n",
+        "\n",
+        "**XAI спасает проекты:**\n",
+        "- **Amazon (2018):** Hiring AI дискриминировала женщин → проект закрыт\n",
+        "  - ✅ **Lesson:** Measure fairness before deployment!\n",
+        "- **COMPAS:** Racial bias в criminal justice\n",
+        "  - ✅ **Lesson:** Audit third-party models!\n",
+        "- **Healthcare:** FDA требует объяснения AI diagnoses\n",
+        "  - ✅ **Lesson:** Interpretability = regulatory requirement\n",
+        "\n",
+        "**XAI создаёт ценность:**\n",
+        "- **Кредитный скоринг:** Объяснение отказа → клиент знает, как улучшить\n",
+        "- **Медицина:** Врач понимает AI диагноз → больше доверия\n",
+        "- **Fraud detection:** Аналитик видит, почему транзакция suspicious → быстрее реагирует\n",
+        "- **Бизнес insights:** SHAP показывает, какие факторы влияют на churn → action plan\n",
+        "\n",
+        "---\n",
+        "\n",
+        "## 🎉 Phase 6 Complete!\n",
+        "\n",
+        "**Вы теперь знаете:**\n",
+        "- ✅ SHAP (TreeSHAP, KernelSHAP, DeepSHAP)\n",
+        "- ✅ LIME\n",
+        "- ✅ Partial Dependence Plots (PDP)\n",
+        "- ✅ Permutation Importance\n",
+        "- ✅ Fairness metrics (Demographic Parity, Equal Opportunity, Calibration)\n",
+        "- ✅ Bias mitigation strategies\n",
+        "- ✅ Decision Tree visualization\n",
+        "- ✅ Production best practices\n",
+        "\n",
+        "**Следующий шаг: Phase 7 - Production & MLOps**\n",
+        "- Model deployment (FastAPI, Docker, Cloud)\n",
+        "- Monitoring (data drift, model drift, fairness drift)\n",
+        "- CI/CD для ML\n",
+        "- Experiment tracking (MLflow, Weights & Biases)\n",
+        "- Версионирование (DVC)\n",
+        "\n",
+        "---\n",
+        "\n",
+        "**🚀 Ready for production-ready ML!**\n"
+    ]
+})
+
+# Сохраняем финальный notebook
+notebook['cells'] = cells
+
+with open(notebook_path, 'w', encoding='utf-8') as f:
+    json.dump(notebook, f, ensure_ascii=False, indent=1)
+
+print(f'\\n✅ Phase 6 notebook complete: {notebook_path}')
+print(f'Total cells: {len(cells)}')
+print('Decision Tree visualization and comprehensive conclusions added!')
+print('')
+print('📊 Phase 6 Summary:')
+print('- Introduction & Setup (5 cells)')
+print('- EDA & Preprocessing (5 cells)')
+print('- Model Training (3 cells)')
+print('- SHAP Analysis (15 cells)')
+print('- LIME Analysis (4 cells)')
+print('- PDP & Permutation Importance (6 cells)')
+print('- Fairness Analysis (7 cells)')
+print('- Decision Tree Visualization (5 cells)')
+print('- Conclusions & Best Practices (3 cells)')
+print('')
+print('Total: 53 cells - Comprehensive Explainable AI & Fairness!')
