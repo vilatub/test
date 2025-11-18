@@ -1,0 +1,760 @@
+#!/usr/bin/env python3
+"""
+Создание полного ноутбука: 1D-CNN для табличных данных
+Phase 2, Step 2
+"""
+
+import json
+
+notebook = {
+    "cells": [],
+    "metadata": {
+        "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+        "language_info": {"name": "python", "version": "3.8.0"}
+    },
+    "nbformat": 4,
+    "nbformat_minor": 4
+}
+
+cells = []
+
+# ============================================================================
+# TITLE
+# ============================================================================
+
+cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "# 🔄 1D Convolutional Neural Networks для табличных данных\n",
+        "\n",
+        "**Phase 2: Deep Learning Basics - Step 2**\n",
+        "\n",
+        "---\n",
+        "\n",
+        "## 🎯 Цели ноутбука\n",
+        "\n",
+        "1. **Понять 1D convolutions** и их применение\n",
+        "2. **Адаптировать CNN для табличных данных**\n",
+        "3. **Сравнить с MLP** из предыдущего ноутбука\n",
+        "4. **Изучить ключевые компоненты:** filters, pooling, stride, padding\n",
+        "\n",
+        "---\n",
+        "\n",
+        "## 💼 Бизнес-задача: Titanic Survival\n",
+        "\n",
+        "**Необычный подход:** Применим CNN к табличным данным.\n",
+        "\n",
+        "**Почему это может работать?**\n",
+        "- 🔗 **Локальные паттерны:** Некоторые признаки связаны (Age + Sex, Fare + Pclass)\n",
+        "- 📊 **Feature interactions:** CNN автоматически находит комбинации\n",
+        "- 🧪 **Эксперимент:** Понять, когда CNN лучше MLP\n",
+        "\n",
+        "**Честное предупреждение:**\n",
+        "- ❌ 1D-CNN **обычно НЕ лучше** MLP/XGBoost для табличных данных\n",
+        "- ✅ **Но:** Отлично работает для временных рядов, сигналов, текста\n",
+        "- ✅ **Цель:** Понять механизм convolutions для последующего изучения 2D-CNN (изображения)\n",
+        "\n",
+        "---"
+    ]
+})
+
+# ============================================================================
+# THEORY
+# ============================================================================
+
+cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "## 📚 Часть 1: Теория Convolutional Neural Networks\n",
+        "\n",
+        "### 1.1 Что такое Convolution?\n",
+        "\n",
+        "**Свёртка (Convolution)** — операция скользящего окна, которая извлекает локальные паттерны.\n",
+        "\n",
+        "#### 1D Convolution математически\n",
+        "\n",
+        "Для входного сигнала $x$ длины $L$ и фильтра (kernel) $w$ размера $k$:\n",
+        "\n",
+        "$$(x * w)[i] = \\sum_{j=0}^{k-1} x[i+j] \\cdot w[j]$$\n",
+        "\n",
+        "**Пример:**\n",
+        "```\n",
+        "Input:  [1, 2, 3, 4, 5]\n",
+        "Filter: [1, 0, -1]  (edge detector)\n",
+        "\n",
+        "Output[0] = 1*1 + 2*0 + 3*(-1) = -2\n",
+        "Output[1] = 2*1 + 3*0 + 4*(-1) = -2\n",
+        "Output[2] = 3*1 + 4*0 + 5*(-1) = -2\n",
+        "```\n",
+        "\n",
+        "**Интуиция:** Фильтр \"скользит\" по входу, вычисляя локальные паттерны.\n",
+        "\n",
+        "---\n",
+        "\n",
+        "### 1.2 Ключевые параметры CNN\n",
+        "\n",
+        "#### 1.2.1 Kernel Size (размер фильтра)\n",
+        "\n",
+        "- **Малый kernel (3):** Детализированные локальные признаки\n",
+        "- **Большой kernel (5, 7):** Более широкий контекст\n",
+        "\n",
+        "**Рекомендация:** Начните с 3, увеличивайте если нужен больший receptive field.\n",
+        "\n",
+        "#### 1.2.2 Stride (шаг)\n",
+        "\n",
+        "Насколько позиций сдвигается фильтр:\n",
+        "\n",
+        "- **Stride=1:** Каждая позиция (no downsampling)\n",
+        "- **Stride=2:** Каждая вторая позиция (downsampling в 2 раза)\n",
+        "\n",
+        "**Размер выхода:**\n",
+        "\n",
+        "$$L_{\\text{out}} = \\left\\lfloor \\frac{L_{\\text{in}} - k + 2p}{s} \\right\\rfloor + 1$$\n",
+        "\n",
+        "где:\n",
+        "- $L_{\\text{in}}$ — длина входа\n",
+        "- $k$ — kernel size\n",
+        "- $p$ — padding\n",
+        "- $s$ — stride\n",
+        "\n",
+        "#### 1.2.3 Padding\n",
+        "\n",
+        "Добавление нулей по краям:\n",
+        "\n",
+        "- **Valid (no padding):** Выход короче входа\n",
+        "- **Same (padding):** Выход той же длины (часто $p = \\lfloor k/2 \\rfloor$)\n",
+        "\n",
+        "**Зачем?** Сохранить размерность и информацию с краёв.\n",
+        "\n",
+        "#### 1.2.4 Number of Filters\n",
+        "\n",
+        "Количество разных паттернов, которые ищем:\n",
+        "\n",
+        "- **Input:** $(L, C_{\\text{in}})$ где $C_{\\text{in}}$ — число каналов\n",
+        "- **Filters:** $(k, C_{\\text{in}}, C_{\\text{out}})$\n",
+        "- **Output:** $(L', C_{\\text{out}})$\n",
+        "\n",
+        "Типично: 32 → 64 → 128 filters.\n",
+        "\n",
+        "---"
+    ]
+})
+
+cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "### 1.3 Pooling Layers\n",
+        "\n",
+        "**Pooling** — downsampling для уменьшения размерности.\n",
+        "\n",
+        "#### Max Pooling\n",
+        "\n",
+        "$$y[i] = \\max(x[i \\cdot s : i \\cdot s + k])$$\n",
+        "\n",
+        "**Пример (pool_size=2):**\n",
+        "```\n",
+        "Input:  [1, 3, 2, 4]\n",
+        "Output: [3, 4]  (max из каждой пары)\n",
+        "```\n",
+        "\n",
+        "**Эффект:**\n",
+        "- ✅ Уменьшает размерность в 2 раза\n",
+        "- ✅ Translation invariance (малые сдвиги не важны)\n",
+        "- ✅ Выделяет наиболее сильные активации\n",
+        "\n",
+        "#### Average Pooling\n",
+        "\n",
+        "$$y[i] = \\frac{1}{k} \\sum_{j=0}^{k-1} x[i \\cdot s + j]$$\n",
+        "\n",
+        "**Когда:**\n",
+        "- Average pooling: Более гладкое downsampling\n",
+        "- Max pooling: Чаще используется (выделяет strongest features)\n",
+        "\n",
+        "---"
+    ]
+})
+
+cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "### 1.4 CNN для табличных данных: Как адаптировать?\n",
+        "\n",
+        "**Проблема:** Признаки в таблице часто **НЕ упорядочены** (в отличие от пикселей в изображении).\n",
+        "\n",
+        "**Решения:**\n",
+        "\n",
+        "#### Подход 1: Упорядочить признаки осмысленно\n",
+        "\n",
+        "Группировать связанные признаки:\n",
+        "```\n",
+        "[Age, Sex, Married] → Демография\n",
+        "[Fare, Pclass, Cabin] → Экономический статус\n",
+        "[SibSp, Parch, FamilySize] → Семья\n",
+        "```\n",
+        "\n",
+        "CNN будет искать паттерны **внутри каждой группы**.\n",
+        "\n",
+        "#### Подход 2: Kernel size = все признаки\n",
+        "\n",
+        "Если kernel охватывает все признаки → эквивалентно MLP.\n",
+        "\n",
+        "#### Подход 3: Multiple filter sizes\n",
+        "\n",
+        "Разные kernel sizes захватывают разные масштабы:\n",
+        "- Kernel 3: Локальные взаимодействия (2-3 признака)\n",
+        "- Kernel 5: Средние взаимодействия\n",
+        "- Kernel 7: Широкие взаимодействия\n",
+        "\n",
+        "**Почему обычно XGBoost/MLP лучше:**\n",
+        "- ❌ CNN предполагает **локальность** паттернов\n",
+        "- ❌ Табличные признаки часто имеют **глобальные** взаимодействия\n",
+        "- ❌ Порядок признаков обычно **произволен**\n",
+        "\n",
+        "**Когда 1D-CNN может работать:**\n",
+        "- ✅ Временные ряды (порядок времени естественен)\n",
+        "- ✅ Сигналы (EEG, ECG, аудио)\n",
+        "- ✅ Текст (последовательность слов)\n",
+        "- ✅ Табличные данные с **естественным порядком** признаков\n",
+        "\n",
+        "---\n",
+        "\n",
+        "## Теория завершена! Переходим к практике 🚀\n",
+        "\n",
+        "---"
+    ]
+})
+
+# Сохраняем пока
+notebook['cells'] = cells
+
+output_path = '/home/user/test/notebooks/phase2_deep_learning_basics/02_1dcnn_tabular.ipynb'
+with open(output_path, 'w', encoding='utf-8') as f:
+    json.dump(notebook, f, ensure_ascii=False, indent=1)
+
+print(f'✅ Создан: {output_path}')
+print(f'Теория: {len(cells)} ячеек')
+print('Добавляю практику...')
+
+# ============================================================================
+# ПРАКТИКА
+# ============================================================================
+
+practical_cells = []
+
+practical_cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": ["## 📊 Часть 2: Практическая реализация\n\n### 2.1 Импорт библиотек"]
+})
+
+practical_cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "import pandas as pd\n",
+        "import numpy as np\n",
+        "import matplotlib.pyplot as plt\n",
+        "import seaborn as sns\n",
+        "import warnings\n",
+        "warnings.filterwarnings('ignore')\n",
+        "\n",
+        "import torch\n",
+        "import torch.nn as nn\n",
+        "import torch.optim as optim\n",
+        "from torch.utils.data import DataLoader, TensorDataset\n",
+        "\n",
+        "from sklearn.model_selection import train_test_split\n",
+        "from sklearn.preprocessing import StandardScaler\n",
+        "from sklearn.metrics import accuracy_score, roc_auc_score, f1_score\n",
+        "from xgboost import XGBClassifier\n",
+        "\n",
+        "plt.style.use('seaborn-v0_8-darkgrid')\n",
+        "%matplotlib inline\n",
+        "\n",
+        "RANDOM_STATE = 42\n",
+        "np.random.seed(RANDOM_STATE)\n",
+        "torch.manual_seed(RANDOM_STATE)\n",
+        "\n",
+        "device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
+        "print(f'Device: {device}')\n",
+        "print('✅ Библиотеки загружены')"
+    ]
+})
+
+# Загрузка данных (та же подготовка, что в MLP)
+practical_cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": ["### 2.2 Загрузка данных (та же подготовка, что в MLP)"]
+})
+
+practical_cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "# Загружаем и подготавливаем данные точно так же, как в MLP notebook\n",
+        "data_path = '../../data/titanic_train.csv'\n",
+        "df = pd.read_csv(data_path) if __import__('os').path.exists(data_path) else None\n",
+        "\n",
+        "if df is not None:\n",
+        "    # Заполняем пропуски\n",
+        "    df['Age'].fillna(df['Age'].median(), inplace=True)\n",
+        "    df['Fare'].fillna(df['Fare'].median(), inplace=True)\n",
+        "    df['Embarked'].fillna(df['Embarked'].mode()[0], inplace=True)\n",
+        "    \n",
+        "    # Feature engineering\n",
+        "    df['Sex'] = (df['Sex'] == 'male').astype(int)\n",
+        "    df['FamilySize'] = df['SibSp'] + df['Parch'] + 1\n",
+        "    df['IsAlone'] = (df['FamilySize'] == 1).astype(int)\n",
+        "    df = pd.get_dummies(df, columns=['Embarked'], drop_first=True)\n",
+        "    \n",
+        "    # Упорядочим признаки осмысленно для CNN!\n",
+        "    # Группа 1: Личная информация\n",
+        "    personal = ['Age', 'Sex']\n",
+        "    # Группа 2: Экономический статус\n",
+        "    economic = ['Pclass', 'Fare']\n",
+        "    # Группа 3: Семья\n",
+        "    family = ['FamilySize', 'IsAlone', 'SibSp', 'Parch']\n",
+        "    # Группа 4: Посадка\n",
+        "    embarked = [col for col in df.columns if 'Embarked_' in col]\n",
+        "    \n",
+        "    features = personal + economic + family + embarked\n",
+        "    \n",
+        "    X = df[features].values\n",
+        "    y = df['Survived'].values\n",
+        "    \n",
+        "    print(f'✅ Данные загружены: {df.shape}')\n",
+        "    print(f'Признаки (упорядочены по группам): {features}')\n",
+        "    print(f'X shape: {X.shape}, y shape: {y.shape}')"
+    ]
+})
+
+practical_cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "# Train/Val/Test split + scaling\n",
+        "X_temp, X_test, y_temp, y_test = train_test_split(X, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y)\n",
+        "X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=0.2, random_state=RANDOM_STATE, stratify=y_temp)\n",
+        "\n",
+        "scaler = StandardScaler()\n",
+        "X_train = scaler.fit_transform(X_train)\n",
+        "X_val = scaler.transform(X_val)\n",
+        "X_test = scaler.transform(X_test)\n",
+        "\n",
+        "# Для CNN нужна размерность (batch, channels, length)\n",
+        "# Табличные данные: (batch, 1, num_features) - 1 канал, num_features длина\n",
+        "X_train_cnn = X_train[:, np.newaxis, :]  # (N, 1, features)\n",
+        "X_val_cnn = X_val[:, np.newaxis, :]\n",
+        "X_test_cnn = X_test[:, np.newaxis, :]\n",
+        "\n",
+        "# PyTorch tensors\n",
+        "X_train_t = torch.FloatTensor(X_train_cnn)\n",
+        "y_train_t = torch.FloatTensor(y_train)\n",
+        "X_val_t = torch.FloatTensor(X_val_cnn)\n",
+        "y_val_t = torch.FloatTensor(y_val)\n",
+        "X_test_t = torch.FloatTensor(X_test_cnn)\n",
+        "y_test_t = torch.FloatTensor(y_test)\n",
+        "\n",
+        "# DataLoaders\n",
+        "batch_size = 32\n",
+        "train_loader = DataLoader(TensorDataset(X_train_t, y_train_t), batch_size=batch_size, shuffle=True)\n",
+        "val_loader = DataLoader(TensorDataset(X_val_t, y_val_t), batch_size=batch_size)\n",
+        "test_loader = DataLoader(TensorDataset(X_test_t, y_test_t), batch_size=batch_size)\n",
+        "\n",
+        "print(f'Train: {X_train.shape[0]}, Val: {X_val.shape[0]}, Test: {X_test.shape[0]}')\n",
+        "print(f'CNN input shape: (batch, {X_train_cnn.shape[1]}, {X_train_cnn.shape[2]})')"
+    ]
+})
+
+# CNN Architecture
+practical_cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": ["### 2.3 1D-CNN архитектура"]
+})
+
+practical_cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "class CNN1D_Tabular(nn.Module):\n",
+        "    def __init__(self, num_features, num_filters=32, kernel_size=3):\n",
+        "        super(CNN1D_Tabular, self).__init__()\n",
+        "        \n",
+        "        # Conv block 1\n",
+        "        self.conv1 = nn.Conv1d(1, num_filters, kernel_size=kernel_size, padding=kernel_size//2)\n",
+        "        self.bn1 = nn.BatchNorm1d(num_filters)\n",
+        "        self.pool1 = nn.MaxPool1d(2)\n",
+        "        \n",
+        "        # Conv block 2\n",
+        "        self.conv2 = nn.Conv1d(num_filters, num_filters*2, kernel_size=kernel_size, padding=kernel_size//2)\n",
+        "        self.bn2 = nn.BatchNorm1d(num_filters*2)\n",
+        "        self.pool2 = nn.MaxPool1d(2)\n",
+        "        \n",
+        "        # Вычисляем размер после convolutions\n",
+        "        # После 2 pooling слоев: num_features / 2 / 2 = num_features / 4\n",
+        "        flattened_size = (num_features // 4) * (num_filters * 2)\n",
+        "        \n",
+        "        # Fully connected layers\n",
+        "        self.fc1 = nn.Linear(flattened_size, 64)\n",
+        "        self.dropout = nn.Dropout(0.3)\n",
+        "        self.fc2 = nn.Linear(64, 1)\n",
+        "    \n",
+        "    def forward(self, x):\n",
+        "        # x shape: (batch, 1, features)\n",
+        "        \n",
+        "        # Conv block 1: Conv → BN → ReLU → Pool\n",
+        "        x = self.conv1(x)\n",
+        "        x = self.bn1(x)\n",
+        "        x = torch.relu(x)\n",
+        "        x = self.pool1(x)\n",
+        "        \n",
+        "        # Conv block 2\n",
+        "        x = self.conv2(x)\n",
+        "        x = self.bn2(x)\n",
+        "        x = torch.relu(x)\n",
+        "        x = self.pool2(x)\n",
+        "        \n",
+        "        # Flatten\n",
+        "        x = x.view(x.size(0), -1)\n",
+        "        \n",
+        "        # FC layers\n",
+        "        x = self.fc1(x)\n",
+        "        x = torch.relu(x)\n",
+        "        x = self.dropout(x)\n",
+        "        x = self.fc2(x)\n",
+        "        x = torch.sigmoid(x)\n",
+        "        \n",
+        "        return x\n",
+        "\n",
+        "# Инициализация\n",
+        "num_features = X_train_cnn.shape[2]\n",
+        "model_cnn = CNN1D_Tabular(num_features=num_features).to(device)\n",
+        "\n",
+        "print(model_cnn)\n",
+        "print(f'\\nTotal parameters: {sum(p.numel() for p in model_cnn.parameters()):,}')"
+    ]
+})
+
+# Training (используем те же функции из MLP)
+practical_cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": ["### 2.4 Обучение CNN"]
+})
+
+practical_cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "# Training functions (те же, что в MLP)\n",
+        "def train_epoch(model, loader, criterion, optimizer, device):\n",
+        "    model.train()\n",
+        "    total_loss, correct, total = 0, 0, 0\n",
+        "    for X_batch, y_batch in loader:\n",
+        "        X_batch, y_batch = X_batch.to(device), y_batch.to(device).unsqueeze(1)\n",
+        "        outputs = model(X_batch)\n",
+        "        loss = criterion(outputs, y_batch)\n",
+        "        optimizer.zero_grad()\n",
+        "        loss.backward()\n",
+        "        optimizer.step()\n",
+        "        total_loss += loss.item() * X_batch.size(0)\n",
+        "        correct += ((outputs > 0.5).float() == y_batch).sum().item()\n",
+        "        total += y_batch.size(0)\n",
+        "    return total_loss / total, correct / total\n",
+        "\n",
+        "def validate_epoch(model, loader, criterion, device):\n",
+        "    model.eval()\n",
+        "    total_loss, correct, total = 0, 0, 0\n",
+        "    all_preds, all_labels = [], []\n",
+        "    with torch.no_grad():\n",
+        "        for X_batch, y_batch in loader:\n",
+        "            X_batch, y_batch = X_batch.to(device), y_batch.to(device).unsqueeze(1)\n",
+        "            outputs = model(X_batch)\n",
+        "            loss = criterion(outputs, y_batch)\n",
+        "            total_loss += loss.item() * X_batch.size(0)\n",
+        "            correct += ((outputs > 0.5).float() == y_batch).sum().item()\n",
+        "            total += y_batch.size(0)\n",
+        "            all_preds.extend(outputs.cpu().numpy())\n",
+        "            all_labels.extend(y_batch.cpu().numpy())\n",
+        "    return total_loss / total, correct / total, all_preds, all_labels\n",
+        "\n",
+        "# Loss и optimizer\n",
+        "criterion = nn.BCELoss()\n",
+        "optimizer = optim.Adam(model_cnn.parameters(), lr=0.001)\n",
+        "\n",
+        "print('✅ Training functions готовы')"
+    ]
+})
+
+practical_cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "# Training loop\n",
+        "num_epochs = 100\n",
+        "patience = 10\n",
+        "\n",
+        "train_losses, val_losses = [], []\n",
+        "train_accs, val_accs = [], []\n",
+        "best_val_loss = float('inf')\n",
+        "patience_counter = 0\n",
+        "best_model_state = None\n",
+        "\n",
+        "print('Обучаем 1D-CNN...')\n",
+        "for epoch in range(num_epochs):\n",
+        "    train_loss, train_acc = train_epoch(model_cnn, train_loader, criterion, optimizer, device)\n",
+        "    val_loss, val_acc, _, _ = validate_epoch(model_cnn, val_loader, criterion, device)\n",
+        "    \n",
+        "    train_losses.append(train_loss)\n",
+        "    val_losses.append(val_loss)\n",
+        "    train_accs.append(train_acc)\n",
+        "    val_accs.append(val_acc)\n",
+        "    \n",
+        "    if val_loss < best_val_loss:\n",
+        "        best_val_loss = val_loss\n",
+        "        best_model_state = model_cnn.state_dict().copy()\n",
+        "        patience_counter = 0\n",
+        "    else:\n",
+        "        patience_counter += 1\n",
+        "    \n",
+        "    if (epoch + 1) % 10 == 0:\n",
+        "        print(f'Epoch {epoch+1}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}, Val Acc={val_acc:.4f}')\n",
+        "    \n",
+        "    if patience_counter >= patience:\n",
+        "        print(f'Early stopping на epoch {epoch+1}')\n",
+        "        break\n",
+        "\n",
+        "model_cnn.load_state_dict(best_model_state)\n",
+        "print(f'✅ Обучение завершено! Best val loss: {best_val_loss:.4f}')"
+    ]
+})
+
+# Evaluation
+practical_cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": ["### 2.5 Оценка и сравнение с MLP/XGBoost"]
+})
+
+practical_cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "# Оценка CNN\n",
+        "_, cnn_acc, cnn_preds, cnn_labels = validate_epoch(model_cnn, test_loader, criterion, device)\n",
+        "cnn_preds_np = np.array(cnn_preds).flatten()\n",
+        "cnn_labels_np = np.array(cnn_labels).flatten()\n",
+        "cnn_f1 = f1_score(cnn_labels_np, (cnn_preds_np > 0.5).astype(int))\n",
+        "cnn_auc = roc_auc_score(cnn_labels_np, cnn_preds_np)\n",
+        "\n",
+        "print('📊 1D-CNN Results:')\n",
+        "print(f'  Accuracy: {cnn_acc:.4f}')\n",
+        "print(f'  F1-score: {cnn_f1:.4f}')\n",
+        "print(f'  ROC-AUC: {cnn_auc:.4f}')"
+    ]
+})
+
+practical_cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "# MLP для сравнения (простая версия)\n",
+        "from torch import nn as nn_mlp\n",
+        "\n",
+        "class SimpleMLP(nn_mlp.Module):\n",
+        "    def __init__(self, input_dim):\n",
+        "        super().__init__()\n",
+        "        self.net = nn_mlp.Sequential(\n",
+        "            nn_mlp.Linear(input_dim, 64), nn_mlp.ReLU(), nn_mlp.Dropout(0.3),\n",
+        "            nn_mlp.Linear(64, 32), nn_mlp.ReLU(), nn_mlp.Dropout(0.3),\n",
+        "            nn_mlp.Linear(32, 1), nn_mlp.Sigmoid()\n",
+        "        )\n",
+        "    def forward(self, x):\n",
+        "        return self.net(x)\n",
+        "\n",
+        "# Готовим данные для MLP (без дополнительной размерности)\n",
+        "X_train_mlp_t = torch.FloatTensor(X_train)\n",
+        "X_test_mlp_t = torch.FloatTensor(X_test)\n",
+        "\n",
+        "# Быстрое обучение MLP\n",
+        "model_mlp = SimpleMLP(num_features).to(device)\n",
+        "optimizer_mlp = optim.Adam(model_mlp.parameters(), lr=0.001)\n",
+        "loader_mlp = DataLoader(TensorDataset(X_train_mlp_t, y_train_t), batch_size=32, shuffle=True)\n",
+        "\n",
+        "print('Обучаем MLP для сравнения...')\n",
+        "for epoch in range(50):  # Меньше эпох для скорости\n",
+        "    model_mlp.train()\n",
+        "    for X_batch, y_batch in loader_mlp:\n",
+        "        X_batch, y_batch = X_batch.to(device), y_batch.to(device).unsqueeze(1)\n",
+        "        loss = criterion(model_mlp(X_batch), y_batch)\n",
+        "        optimizer_mlp.zero_grad()\n",
+        "        loss.backward()\n",
+        "        optimizer_mlp.step()\n",
+        "\n",
+        "# Оценка MLP\n",
+        "model_mlp.eval()\n",
+        "with torch.no_grad():\n",
+        "    mlp_preds = model_mlp(X_test_mlp_t.to(device)).cpu().numpy().flatten()\n",
+        "mlp_acc = accuracy_score(y_test, (mlp_preds > 0.5).astype(int))\n",
+        "mlp_f1 = f1_score(y_test, (mlp_preds > 0.5).astype(int))\n",
+        "mlp_auc = roc_auc_score(y_test, mlp_preds)\n",
+        "\n",
+        "print('✅ MLP обучен')"
+    ]
+})
+
+practical_cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "# XGBoost для полноты\n",
+        "print('Обучаем XGBoost...')\n",
+        "xgb = XGBClassifier(n_estimators=100, learning_rate=0.1, max_depth=4, random_state=RANDOM_STATE, verbosity=0)\n",
+        "xgb.fit(X_train, y_train)\n",
+        "xgb_preds = xgb.predict_proba(X_test)[:, 1]\n",
+        "xgb_acc = accuracy_score(y_test, (xgb_preds > 0.5).astype(int))\n",
+        "xgb_f1 = f1_score(y_test, (xgb_preds > 0.5).astype(int))\n",
+        "xgb_auc = roc_auc_score(y_test, xgb_preds)\n",
+        "\n",
+        "print('✅ XGBoost обучен')"
+    ]
+})
+
+practical_cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "# Итоговое сравнение\n",
+        "comparison = pd.DataFrame({\n",
+        "    'Model': ['1D-CNN', 'MLP', 'XGBoost'],\n",
+        "    'Accuracy': [cnn_acc, mlp_acc, xgb_acc],\n",
+        "    'F1-score': [cnn_f1, mlp_f1, xgb_f1],\n",
+        "    'ROC-AUC': [cnn_auc, mlp_auc, xgb_auc]\n",
+        "})\n",
+        "\n",
+        "print('\\n' + '='*60)\n",
+        "print('🏆 СРАВНЕНИЕ: 1D-CNN vs MLP vs XGBoost')\n",
+        "print('='*60)\n",
+        "print(comparison.to_string(index=False))\n",
+        "print('='*60)\n",
+        "\n",
+        "# Визуализация\n",
+        "fig, axes = plt.subplots(1, 3, figsize=(15, 5))\n",
+        "for i, metric in enumerate(['Accuracy', 'F1-score', 'ROC-AUC']):\n",
+        "    axes[i].bar(comparison['Model'], comparison[metric], alpha=0.7, edgecolor='black')\n",
+        "    axes[i].set_ylabel(metric)\n",
+        "    axes[i].set_title(f'{metric} Comparison')\n",
+        "    axes[i].set_ylim([0.7, 0.9])\n",
+        "    for j, v in enumerate(comparison[metric]):\n",
+        "        axes[i].text(j, v + 0.01, f'{v:.3f}', ha='center')\n",
+        "plt.tight_layout()\n",
+        "plt.show()"
+    ]
+})
+
+# Conclusions
+practical_cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "## 🎯 Выводы\n",
+        "\n",
+        "### Что мы изучили:\n",
+        "\n",
+        "1. **1D Convolutions:** Операция свёртки для одномерных данных\n",
+        "2. **CNN компоненты:** Filters, kernels, stride, padding, pooling\n",
+        "3. **Адаптация для табличных:** Упорядочивание признаков, multiple kernel sizes\n",
+        "4. **PyTorch реализация:** Conv1d, MaxPool1d, BatchNorm1d\n",
+        "\n",
+        "### Результаты: 1D-CNN vs MLP vs XGBoost\n",
+        "\n",
+        "**Типичные результаты для Titanic:**\n",
+        "- **XGBoost:** Accuracy ~82-84%, ROC-AUC ~0.85-0.87 🏆\n",
+        "- **MLP:** Accuracy ~80-82%, ROC-AUC ~0.83-0.85\n",
+        "- **1D-CNN:** Accuracy ~78-82%, ROC-AUC ~0.82-0.85\n",
+        "\n",
+        "### Ключевые инсайты:\n",
+        "\n",
+        "#### ❌ Почему 1D-CNN НЕ лучше для табличных данных:\n",
+        "\n",
+        "1. **Нет естественного порядка:** Признаки в таблице не упорядочены как пиксели/слова\n",
+        "2. **Глобальные interactions:** Табличные данные часто имеют взаимодействия между далёкими признаками\n",
+        "3. **Локальность assumption:** CNN предполагает, что близкие элементы связаны\n",
+        "4. **XGBoost оптимизирован:** Для табличных данных gradient boosting state-of-the-art\n",
+        "\n",
+        "#### ✅ Когда 1D-CNN превосходит:\n",
+        "\n",
+        "1. **Временные ряды:** Порядок времени естественен\n",
+        "2. **Сигналы:** EEG, ECG, аудио - локальные паттерны важны\n",
+        "3. **Текст:** Последовательность слов/символов\n",
+        "4. **Sensor данные:** Акселерометр, гироскоп\n",
+        "\n",
+        "### Когда использовать 1D-CNN:\n",
+        "\n",
+        "| Данные | 1D-CNN | Почему |\n",
+        "|--------|--------|--------|\n",
+        "| **Временные ряды** | ✅ Да | Локальные паттерны во времени |\n",
+        "| **Сигналы (EEG, ECG)** | ✅ Да | Частотные и временные паттерны |\n",
+        "| **Текст** | ✅ Да | N-grams, локальные контексты |\n",
+        "| **Табличные** | ❌ Обычно нет | XGBoost/MLP лучше |\n",
+        "| **Табличные с порядком** | ⚠️ Может быть | Если признаки естественно упорядочены |\n",
+        "\n",
+        "### Практические выводы:\n",
+        "\n",
+        "1. **Для Titanic/табличных:** Используйте XGBoost или MLP\n",
+        "2. **Для временных рядов:** 1D-CNN отличный выбор\n",
+        "3. **Понимание CNN:** Подготовка к 2D-CNN для изображений\n",
+        "\n",
+        "### Следующие шаги:\n",
+        "\n",
+        "1. **Autoencoders:** Unsupervised learning, anomaly detection\n",
+        "2. **2D-CNN (CV):** Изображения - где CNN действительно блестят\n",
+        "3. **RNN/LSTM:** Временные ряды с долгосрочными зависимостями\n",
+        "\n",
+        "---\n",
+        "\n",
+        "## 🎉 Phase 2, Step 2 завершен!\n",
+        "\n",
+        "Вы поняли основы CNN и когда их применять. Готовы к Autoencoders! 🚀\n"
+    ]
+})
+
+# Добавляем практику
+for cell in practical_cells:
+    cells.append(cell)
+
+notebook['cells'] = cells
+
+# Финальное сохранение
+with open(output_path, 'w', encoding='utf-8') as f:
+    json.dump(notebook, f, ensure_ascii=False, indent=1)
+
+print(f'✅ Практика добавлена: {len(practical_cells)} ячеек')
+print(f'Всего ячеек: {len(cells)}')
+print(f'Ноутбук готов: {output_path}')
