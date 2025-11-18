@@ -1,0 +1,547 @@
+#!/usr/bin/env python3
+"""
+Phase 4 Step 1: Self-Attention & Transformer Basics
+Part 2: Multi-Head Attention and Positional Encoding
+"""
+
+import json
+
+# Загружаем существующий notebook
+notebook_path = '/home/user/test/notebooks/phase4_transformers/01_self_attention_transformer.ipynb'
+with open(notebook_path, 'r', encoding='utf-8') as f:
+    notebook = json.load(f)
+
+cells = notebook['cells']
+
+# ============================================================================
+# MULTI-HEAD ATTENTION THEORY
+# ============================================================================
+
+cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "---\n",
+        "\n",
+        "## 🎯 Часть 2: Multi-Head Attention\n",
+        "\n",
+        "### 2.1 Теория: Зачем нужны Multiple Heads?\n",
+        "\n",
+        "---\n",
+        "\n",
+        "## 🤔 Проблема Single-Head Attention\n",
+        "\n",
+        "**Single head:**\n",
+        "- Учит только **один паттерн** attention\n",
+        "- Может упустить разные типы взаимодействий\n",
+        "\n",
+        "**Пример в NLP:**\n",
+        "- Предложение: \"The cat sat on the mat\"\n",
+        "- Head 1 может учить **syntactic relationships** (subject-verb)\n",
+        "- Head 2 может учить **semantic relationships** (cat-mat: location)\n",
+        "- Head 3 может учить **long-range dependencies**\n",
+        "\n",
+        "**Решение: Multi-Head Attention!**\n",
+        "\n",
+        "---\n",
+        "\n",
+        "## 📐 Математика Multi-Head Attention\n",
+        "\n",
+        "**Идея:** Запускаем $h$ параллельных attention layers с разными проекциями.\n",
+        "\n",
+        "**Для каждого head $i$:**\n",
+        "\n",
+        "$$\\text{head}_i = \\text{Attention}(QW_i^Q, KW_i^K, VW_i^V)$$\n",
+        "\n",
+        "Где:\n",
+        "- $W_i^Q, W_i^K, W_i^V$ - learnable projection matrices для head $i$\n",
+        "- Обычно: $d_k = d_v = d_{model} / h$ (делим размерность между heads)\n",
+        "\n",
+        "**Concatenation:**\n",
+        "\n",
+        "$$\\text{MultiHead}(Q, K, V) = \\text{Concat}(\\text{head}_1, ..., \\text{head}_h) W^O$$\n",
+        "\n",
+        "Где:\n",
+        "- $W^O \\in \\mathbb{R}^{d_{model} \\times d_{model}}$ - output projection matrix\n",
+        "\n",
+        "**Размерности:**\n",
+        "- Input: $(batch, seq\\_len, d_{model})$\n",
+        "- Each head output: $(batch, seq\\_len, d_k)$\n",
+        "- Concatenated: $(batch, seq\\_len, h \\cdot d_k) = (batch, seq\\_len, d_{model})$\n",
+        "- Final output: $(batch, seq\\_len, d_{model})$\n",
+        "\n",
+        "---\n",
+        "\n",
+        "## 🎨 Визуализация\n",
+        "\n",
+        "```\n",
+        "Input X (d_model)\n",
+        "        ↓\n",
+        "    ┌───┴───┬───────┬───────┐\n",
+        "    ↓       ↓       ↓       ↓\n",
+        "  Head1   Head2   Head3  ... Head_h\n",
+        "  (d_k)   (d_k)   (d_k)     (d_k)\n",
+        "    ↓       ↓       ↓       ↓\n",
+        "   Att1    Att2    Att3   ... Att_h\n",
+        "    └───┬───┴───────┴───────┘\n",
+        "        ↓\n",
+        "    Concat (h * d_k = d_model)\n",
+        "        ↓\n",
+        "    Linear (W^O)\n",
+        "        ↓\n",
+        "    Output (d_model)\n",
+        "```\n",
+        "\n",
+        "---\n",
+        "\n",
+        "## ✨ Преимущества Multi-Head\n",
+        "\n",
+        "1. **Diverse Representations:**\n",
+        "   - Разные heads учат разные паттерны\n",
+        "   - Ensemble effect внутри одного слоя\n",
+        "\n",
+        "2. **Richer Feature Space:**\n",
+        "   - $h$ разных проекций → больше способов комбинировать информацию\n",
+        "   - Аналог \"multiple filters\" в CNN\n",
+        "\n",
+        "3. **Interpretability:**\n",
+        "   - Можно визуализировать, что каждый head \"смотрит\"\n",
+        "   - Разные heads могут специализироваться\n",
+        "\n",
+        "4. **Empirical Success:**\n",
+        "   - BERT: 12 heads, GPT-3: 96 heads\n",
+        "   - Критично для SOTA performance\n",
+        "\n",
+        "---\n"
+    ]
+})
+
+# ============================================================================
+# MULTI-HEAD IMPLEMENTATION
+# ============================================================================
+
+cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "### 2.2 Implementation: Multi-Head Attention"
+    ]
+})
+
+cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "class MultiHeadAttention(nn.Module):\n",
+        "    \"\"\"\n",
+        "    Multi-Head Attention Layer\n",
+        "    \n",
+        "    Applies h parallel attention heads and concatenates results.\n",
+        "    \"\"\"\n",
+        "    def __init__(self, d_model, n_heads, dropout=0.1):\n",
+        "        \"\"\"\n",
+        "        Args:\n",
+        "            d_model: Model dimension (e.g., 512)\n",
+        "            n_heads: Number of attention heads (e.g., 8)\n",
+        "            dropout: Dropout rate\n",
+        "        \"\"\"\n",
+        "        super(MultiHeadAttention, self).__init__()\n",
+        "        \n",
+        "        assert d_model % n_heads == 0, \"d_model must be divisible by n_heads\"\n",
+        "        \n",
+        "        self.d_model = d_model\n",
+        "        self.n_heads = n_heads\n",
+        "        self.d_k = d_model // n_heads  # dimension per head\n",
+        "        \n",
+        "        # Linear projections for Q, K, V\n",
+        "        self.W_Q = nn.Linear(d_model, d_model)\n",
+        "        self.W_K = nn.Linear(d_model, d_model)\n",
+        "        self.W_V = nn.Linear(d_model, d_model)\n",
+        "        \n",
+        "        # Scaled Dot-Product Attention\n",
+        "        self.attention = ScaledDotProductAttention(dropout)\n",
+        "        \n",
+        "        # Output projection\n",
+        "        self.W_O = nn.Linear(d_model, d_model)\n",
+        "        \n",
+        "        self.dropout = nn.Dropout(dropout)\n",
+        "    \n",
+        "    def split_heads(self, x):\n",
+        "        \"\"\"\n",
+        "        Split last dimension into (n_heads, d_k)\n",
+        "        \n",
+        "        Args:\n",
+        "            x: (batch_size, seq_len, d_model)\n",
+        "        \n",
+        "        Returns:\n",
+        "            (batch_size, n_heads, seq_len, d_k)\n",
+        "        \"\"\"\n",
+        "        batch_size, seq_len, d_model = x.size()\n",
+        "        return x.view(batch_size, seq_len, self.n_heads, self.d_k).transpose(1, 2)\n",
+        "    \n",
+        "    def combine_heads(self, x):\n",
+        "        \"\"\"\n",
+        "        Combine heads back\n",
+        "        \n",
+        "        Args:\n",
+        "            x: (batch_size, n_heads, seq_len, d_k)\n",
+        "        \n",
+        "        Returns:\n",
+        "            (batch_size, seq_len, d_model)\n",
+        "        \"\"\"\n",
+        "        batch_size, n_heads, seq_len, d_k = x.size()\n",
+        "        return x.transpose(1, 2).contiguous().view(batch_size, seq_len, self.d_model)\n",
+        "    \n",
+        "    def forward(self, Q, K, V, mask=None):\n",
+        "        \"\"\"\n",
+        "        Args:\n",
+        "            Q, K, V: (batch_size, seq_len, d_model)\n",
+        "            mask: Optional mask\n",
+        "        \n",
+        "        Returns:\n",
+        "            output: (batch_size, seq_len, d_model)\n",
+        "            attention_weights: (batch_size, n_heads, seq_len, seq_len)\n",
+        "        \"\"\"\n",
+        "        batch_size = Q.size(0)\n",
+        "        \n",
+        "        # 1. Linear projections\n",
+        "        Q = self.W_Q(Q)  # (batch, seq_len, d_model)\n",
+        "        K = self.W_K(K)\n",
+        "        V = self.W_V(V)\n",
+        "        \n",
+        "        # 2. Split into multiple heads\n",
+        "        Q = self.split_heads(Q)  # (batch, n_heads, seq_len, d_k)\n",
+        "        K = self.split_heads(K)\n",
+        "        V = self.split_heads(V)\n",
+        "        \n",
+        "        # 3. Apply attention on all heads in parallel\n",
+        "        context, attention_weights = self.attention(Q, K, V, mask)\n",
+        "        # context: (batch, n_heads, seq_len, d_k)\n",
+        "        # attention_weights: (batch, n_heads, seq_len, seq_len)\n",
+        "        \n",
+        "        # 4. Concatenate heads\n",
+        "        context = self.combine_heads(context)  # (batch, seq_len, d_model)\n",
+        "        \n",
+        "        # 5. Final linear projection\n",
+        "        output = self.W_O(context)\n",
+        "        output = self.dropout(output)\n",
+        "        \n",
+        "        return output, attention_weights\n",
+        "\n",
+        "print(\"✅ MultiHeadAttention реализован!\")"
+    ]
+})
+
+# ============================================================================
+# MULTI-HEAD EXAMPLE
+# ============================================================================
+
+cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "### 2.3 Пример: Multi-Head Attention в действии"
+    ]
+})
+
+cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "# Параметры\n",
+        "batch_size = 2\n",
+        "seq_len = 6\n",
+        "d_model = 64\n",
+        "n_heads = 4\n",
+        "\n",
+        "# Создаем случайный input\n",
+        "torch.manual_seed(42)\n",
+        "x = torch.randn(batch_size, seq_len, d_model)\n",
+        "\n",
+        "print(f\"Input shape: {x.shape}\")\n",
+        "print(f\"  batch_size={batch_size}, seq_len={seq_len}, d_model={d_model}\")\n",
+        "print(f\"  n_heads={n_heads}, d_k per head={d_model // n_heads}\")\n",
+        "\n",
+        "# Multi-Head Attention\n",
+        "mha = MultiHeadAttention(d_model, n_heads, dropout=0.0)\n",
+        "output, attention_weights = mha(x, x, x)  # Self-Attention: Q=K=V=x\n",
+        "\n",
+        "print(f\"\\nOutput shape: {output.shape}\")\n",
+        "print(f\"Attention weights shape: {attention_weights.shape}\")\n",
+        "print(f\"  {n_heads} heads, each with ({seq_len} x {seq_len}) attention matrix\")\n",
+        "\n",
+        "# Визуализация attention weights всех heads\n",
+        "fig, axes = plt.subplots(1, n_heads, figsize=(16, 4))\n",
+        "\n",
+        "for i in range(n_heads):\n",
+        "    weights = attention_weights[0, i].detach().numpy()  # первый sample, i-й head\n",
+        "    \n",
+        "    sns.heatmap(weights, annot=True, fmt='.2f', cmap='YlOrRd', \n",
+        "                ax=axes[i], cbar=False, square=True,\n",
+        "                xticklabels=range(1, seq_len+1),\n",
+        "                yticklabels=range(1, seq_len+1))\n",
+        "    axes[i].set_title(f'Head {i+1}', fontsize=14, fontweight='bold')\n",
+        "    axes[i].set_xlabel('Keys')\n",
+        "    if i == 0:\n",
+        "        axes[i].set_ylabel('Queries')\n",
+        "\n",
+        "plt.suptitle('Multi-Head Attention Weights (4 heads)', \n",
+        "             fontsize=16, fontweight='bold', y=1.02)\n",
+        "plt.tight_layout()\n",
+        "plt.show()\n",
+        "\n",
+        "print(\"\\n📊 Наблюдения:\")\n",
+        "print(\"  - Каждый head учит свой паттерн attention\")\n",
+        "print(\"  - Heads могут focus на разных positions\")\n",
+        "print(\"  - Некоторые heads более \\\"diagonal\\\" (local), другие более \\\"distributed\\\" (global)\")"
+    ]
+})
+
+# ============================================================================
+# POSITIONAL ENCODING THEORY
+# ============================================================================
+
+cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "---\n",
+        "\n",
+        "## 📍 Часть 3: Positional Encoding\n",
+        "\n",
+        "### 3.1 Теория: Проблема Permutation Invariance\n",
+        "\n",
+        "---\n",
+        "\n",
+        "## ⚠️ Проблема\n",
+        "\n",
+        "**Self-Attention permutation invariant:**\n",
+        "\n",
+        "$$\\text{Attention}([x_1, x_2, x_3]) = \\text{Attention}([x_3, x_1, x_2])$$\n",
+        "\n",
+        "**Почему это проблема?**\n",
+        "- Порядок элементов важен! (особенно для sequences)\n",
+        "- \"cat sat on mat\" ≠ \"mat on sat cat\"\n",
+        "- Модель не знает position каждого элемента\n",
+        "\n",
+        "**Решение: Positional Encoding!**\n",
+        "\n",
+        "---\n",
+        "\n",
+        "## 📐 Sinusoidal Positional Encoding (для sequences)\n",
+        "\n",
+        "**Идея:** Добавить к каждому элементу уникальный positional vector.\n",
+        "\n",
+        "$$\\text{PE}(pos, 2i) = \\sin\\left(\\frac{pos}{10000^{2i/d_{model}}}\\right)$$\n",
+        "\n",
+        "$$\\text{PE}(pos, 2i+1) = \\cos\\left(\\frac{pos}{10000^{2i/d_{model}}}\\right)$$\n",
+        "\n",
+        "Где:\n",
+        "- $pos$: позиция в последовательности (0, 1, 2, ...)\n",
+        "- $i$: dimension index (0, 1, ..., $d_{model}/2$)\n",
+        "- Even dimensions: sine\n",
+        "- Odd dimensions: cosine\n",
+        "\n",
+        "**Свойства:**\n",
+        "1. **Unique**: каждая позиция → уникальный вектор\n",
+        "2. **Bounded**: значения в $[-1, 1]$\n",
+        "3. **Relative positions**: $\\text{PE}(pos+k)$ - linear function of $\\text{PE}(pos)$\n",
+        "4. **Extrapolation**: работает для позиций, не виденных при обучении\n",
+        "\n",
+        "**Почему sin/cos?**\n",
+        "- Разные частоты для разных dimensions\n",
+        "- Low dimensions: медленные колебания (long-range)\n",
+        "- High dimensions: быстрые колебания (short-range)\n",
+        "- Модель сама выбирает, какие частоты использовать\n",
+        "\n",
+        "---\n",
+        "\n",
+        "## 🗂️ Learnable Positional Embeddings (для табличных данных)\n",
+        "\n",
+        "**Для табличных данных:**\n",
+        "- Нет \"естественного\" порядка features\n",
+        "- Можем использовать **learnable embeddings**:\n",
+        "\n",
+        "$$\\text{PE}_i \\in \\mathbb{R}^{d_{model}}$$\n",
+        "\n",
+        "- Просто learnable parameters для каждой feature position\n",
+        "- Более гибко, адаптируется к данным\n",
+        "\n",
+        "**Final Input:**\n",
+        "\n",
+        "$$X_{final} = X_{embedded} + \\text{PE}$$\n",
+        "\n",
+        "---\n"
+    ]
+})
+
+# ============================================================================
+# POSITIONAL ENCODING IMPLEMENTATION
+# ============================================================================
+
+cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "### 3.2 Implementation: Positional Encoding"
+    ]
+})
+
+cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "class PositionalEncoding(nn.Module):\n",
+        "    \"\"\"\n",
+        "    Sinusoidal Positional Encoding for Sequences\n",
+        "    \n",
+        "    PE(pos, 2i) = sin(pos / 10000^(2i/d_model))\n",
+        "    PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))\n",
+        "    \"\"\"\n",
+        "    def __init__(self, d_model, max_len=5000, dropout=0.1):\n",
+        "        \"\"\"\n",
+        "        Args:\n",
+        "            d_model: Model dimension\n",
+        "            max_len: Maximum sequence length\n",
+        "            dropout: Dropout rate\n",
+        "        \"\"\"\n",
+        "        super(PositionalEncoding, self).__init__()\n",
+        "        self.dropout = nn.Dropout(dropout)\n",
+        "        \n",
+        "        # Создаем positional encoding matrix\n",
+        "        pe = torch.zeros(max_len, d_model)\n",
+        "        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)\n",
+        "        \n",
+        "        # Compute div_term: 10000^(2i/d_model)\n",
+        "        div_term = torch.exp(torch.arange(0, d_model, 2).float() * \n",
+        "                             (-math.log(10000.0) / d_model))\n",
+        "        \n",
+        "        # Apply sin to even indices\n",
+        "        pe[:, 0::2] = torch.sin(position * div_term)\n",
+        "        \n",
+        "        # Apply cos to odd indices\n",
+        "        pe[:, 1::2] = torch.cos(position * div_term)\n",
+        "        \n",
+        "        # Add batch dimension\n",
+        "        pe = pe.unsqueeze(0)  # (1, max_len, d_model)\n",
+        "        \n",
+        "        # Register as buffer (not a parameter, but part of module state)\n",
+        "        self.register_buffer('pe', pe)\n",
+        "    \n",
+        "    def forward(self, x):\n",
+        "        \"\"\"\n",
+        "        Args:\n",
+        "            x: (batch_size, seq_len, d_model)\n",
+        "        \n",
+        "        Returns:\n",
+        "            x + positional_encoding: (batch_size, seq_len, d_model)\n",
+        "        \"\"\"\n",
+        "        x = x + self.pe[:, :x.size(1), :]\n",
+        "        return self.dropout(x)\n",
+        "\n",
+        "\n",
+        "class LearnablePositionalEmbedding(nn.Module):\n",
+        "    \"\"\"\n",
+        "    Learnable Positional Embeddings for Tabular Data\n",
+        "    \"\"\"\n",
+        "    def __init__(self, num_features, d_model, dropout=0.1):\n",
+        "        \"\"\"\n",
+        "        Args:\n",
+        "            num_features: Number of features (sequence length)\n",
+        "            d_model: Model dimension\n",
+        "            dropout: Dropout rate\n",
+        "        \"\"\"\n",
+        "        super(LearnablePositionalEmbedding, self).__init__()\n",
+        "        self.pos_embedding = nn.Parameter(torch.randn(1, num_features, d_model))\n",
+        "        self.dropout = nn.Dropout(dropout)\n",
+        "    \n",
+        "    def forward(self, x):\n",
+        "        \"\"\"\n",
+        "        Args:\n",
+        "            x: (batch_size, num_features, d_model)\n",
+        "        \n",
+        "        Returns:\n",
+        "            x + positional_embedding: (batch_size, num_features, d_model)\n",
+        "        \"\"\"\n",
+        "        x = x + self.pos_embedding\n",
+        "        return self.dropout(x)\n",
+        "\n",
+        "print(\"✅ Positional Encoding реализован (Sinusoidal и Learnable)!\")"
+    ]
+})
+
+# ============================================================================
+# POSITIONAL ENCODING VISUALIZATION
+# ============================================================================
+
+cells.append({
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "### 3.3 Визуализация Positional Encoding"
+    ]
+})
+
+cells.append({
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+        "# Создаем positional encoding\n",
+        "d_model = 64\n",
+        "max_len = 100\n",
+        "\n",
+        "pe_layer = PositionalEncoding(d_model, max_len, dropout=0.0)\n",
+        "pe_matrix = pe_layer.pe[0].numpy()  # (max_len, d_model)\n",
+        "\n",
+        "print(f\"Positional Encoding shape: {pe_matrix.shape}\")\n",
+        "\n",
+        "# Визуализация 1: Heatmap\n",
+        "fig, axes = plt.subplots(2, 1, figsize=(14, 8))\n",
+        "\n",
+        "# Heatmap всех позиций и dimensions\n",
+        "im = axes[0].imshow(pe_matrix.T, cmap='RdBu', aspect='auto', interpolation='nearest')\n",
+        "axes[0].set_title('Positional Encoding Matrix', fontsize=16, fontweight='bold')\n",
+        "axes[0].set_xlabel('Position', fontsize=12)\n",
+        "axes[0].set_ylabel('Dimension', fontsize=12)\n",
+        "plt.colorbar(im, ax=axes[0], label='Value')\n",
+        "\n",
+        "# Несколько примеров позиций\n",
+        "positions_to_plot = [0, 10, 20, 40, 80]\n",
+        "for pos in positions_to_plot:\n",
+        "    axes[1].plot(pe_matrix[pos], label=f'Position {pos}', alpha=0.7)\n",
+        "\n",
+        "axes[1].set_title('Positional Encodings for Different Positions', \n",
+        "                  fontsize=16, fontweight='bold')\n",
+        "axes[1].set_xlabel('Dimension', fontsize=12)\n",
+        "axes[1].set_ylabel('Value', fontsize=12)\n",
+        "axes[1].legend()\n",
+        "axes[1].grid(alpha=0.3)\n",
+        "\n",
+        "plt.tight_layout()\n",
+        "plt.show()\n",
+        "\n",
+        "print(\"\\n📊 Наблюдения:\")\n",
+        "print(\"  - Каждая позиция имеет уникальный паттерн\")\n",
+        "print(\"  - Low dimensions: медленные колебания (видны полосы на heatmap)\")\n",
+        "print(\"  - High dimensions: быстрые колебания (более мелкая структура)\")\n",
+        "print(\"  - Модель может использовать эти паттерны для определения relative positions\")"
+    ]
+})
+
+# Сохраняем
+notebook['cells'] = cells
+
+with open(notebook_path, 'w', encoding='utf-8') as f:
+    json.dump(notebook, f, ensure_ascii=False, indent=1)
+
+print(f'✅ Part 2 добавлена в: {notebook_path}')
+print(f'Всего ячеек: {len(cells)}')
+print('Следующая часть: Transformer Encoder и применение к Titanic...')
