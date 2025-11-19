@@ -1,0 +1,517 @@
+#!/usr/bin/env python3
+"""
+Скрипт для создания 02_gan_basics.ipynb
+Generative Adversarial Networks
+"""
+
+import json
+
+def create_notebook():
+    cells = []
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "# Phase 10: Generative Models\n",
+            "## Часть 2: Generative Adversarial Networks (GAN)\n",
+            "\n",
+            "### В этом ноутбуке:\n",
+            "\n",
+            "1. **GAN архитектура** - Generator vs Discriminator\n",
+            "2. **Adversarial training** - minimax game\n",
+            "3. **Mode collapse** и решения\n",
+            "4. **DCGAN** - Deep Convolutional GAN\n",
+            "5. **Практические советы**"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "import numpy as np\n",
+            "import torch\n",
+            "import torch.nn as nn\n",
+            "import torch.optim as optim\n",
+            "import matplotlib.pyplot as plt\n",
+            "from torch.utils.data import DataLoader, TensorDataset\n",
+            "import warnings\n",
+            "warnings.filterwarnings('ignore')\n",
+            "\n",
+            "torch.manual_seed(42)\n",
+            "np.random.seed(42)\n",
+            "\n",
+            "device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
+            "print(f'Device: {device}')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 1. GAN Концепция\n",
+            "\n",
+            "### Два игрока:\n",
+            "\n",
+            "- **Generator (G)**: создаёт fake данные из шума z\n",
+            "- **Discriminator (D)**: отличает real от fake\n",
+            "\n",
+            "### Minimax Game:\n",
+            "\n",
+            "$$\\min_G \\max_D V(D, G) = \\mathbb{E}_{x \\sim p_{data}}[\\log D(x)] + \\mathbb{E}_{z \\sim p_z}[\\log(1 - D(G(z)))]$$"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 2. Данные"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "def generate_patterns(n_samples=2000):\n",
+            "    \"\"\"Генерация простых паттернов 8x8\"\"\"\n",
+            "    patterns = []\n",
+            "    \n",
+            "    for _ in range(n_samples):\n",
+            "        img = np.zeros((8, 8))\n",
+            "        pattern_type = np.random.randint(4)\n",
+            "        \n",
+            "        if pattern_type == 0:  # Горизонтальная линия\n",
+            "            row = np.random.randint(1, 7)\n",
+            "            img[row, 1:7] = 1\n",
+            "        elif pattern_type == 1:  # Вертикальная линия\n",
+            "            col = np.random.randint(1, 7)\n",
+            "            img[1:7, col] = 1\n",
+            "        elif pattern_type == 2:  # Квадрат\n",
+            "            size = np.random.randint(2, 4)\n",
+            "            start = np.random.randint(1, 6-size)\n",
+            "            img[start:start+size, start:start+size] = 1\n",
+            "        else:  # Диагональ\n",
+            "            for i in range(6):\n",
+            "                img[i+1, i+1] = 1\n",
+            "        \n",
+            "        img += np.random.normal(0, 0.05, (8, 8))\n",
+            "        img = np.clip(img, 0, 1)\n",
+            "        patterns.append(img)\n",
+            "    \n",
+            "    return np.array(patterns)\n",
+            "\n",
+            "# Генерация\n",
+            "X = generate_patterns(2000)\n",
+            "X = torch.FloatTensor(X).view(-1, 1, 8, 8)\n",
+            "\n",
+            "dataset = TensorDataset(X)\n",
+            "dataloader = DataLoader(dataset, batch_size=64, shuffle=True)\n",
+            "\n",
+            "print(f'Data shape: {X.shape}')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 3. Generator и Discriminator"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "class Generator(nn.Module):\n",
+            "    \"\"\"Generator: z -> image\"\"\"\n",
+            "    \n",
+            "    def __init__(self, latent_dim=16, img_size=64):\n",
+            "        super().__init__()\n",
+            "        \n",
+            "        self.model = nn.Sequential(\n",
+            "            nn.Linear(latent_dim, 32),\n",
+            "            nn.LeakyReLU(0.2),\n",
+            "            nn.BatchNorm1d(32),\n",
+            "            \n",
+            "            nn.Linear(32, 64),\n",
+            "            nn.LeakyReLU(0.2),\n",
+            "            nn.BatchNorm1d(64),\n",
+            "            \n",
+            "            nn.Linear(64, img_size),\n",
+            "            nn.Sigmoid()\n",
+            "        )\n",
+            "    \n",
+            "    def forward(self, z):\n",
+            "        img = self.model(z)\n",
+            "        return img.view(-1, 1, 8, 8)\n",
+            "\n",
+            "class Discriminator(nn.Module):\n",
+            "    \"\"\"Discriminator: image -> real/fake probability\"\"\"\n",
+            "    \n",
+            "    def __init__(self, img_size=64):\n",
+            "        super().__init__()\n",
+            "        \n",
+            "        self.model = nn.Sequential(\n",
+            "            nn.Flatten(),\n",
+            "            nn.Linear(img_size, 64),\n",
+            "            nn.LeakyReLU(0.2),\n",
+            "            nn.Dropout(0.3),\n",
+            "            \n",
+            "            nn.Linear(64, 32),\n",
+            "            nn.LeakyReLU(0.2),\n",
+            "            nn.Dropout(0.3),\n",
+            "            \n",
+            "            nn.Linear(32, 1),\n",
+            "            nn.Sigmoid()\n",
+            "        )\n",
+            "    \n",
+            "    def forward(self, img):\n",
+            "        return self.model(img)\n",
+            "\n",
+            "# Тест\n",
+            "latent_dim = 16\n",
+            "G = Generator(latent_dim)\n",
+            "D = Discriminator()\n",
+            "\n",
+            "z = torch.randn(4, latent_dim)\n",
+            "fake_img = G(z)\n",
+            "pred = D(fake_img)\n",
+            "\n",
+            "print(f'Noise: {z.shape}')\n",
+            "print(f'Generated: {fake_img.shape}')\n",
+            "print(f'Discriminator output: {pred.shape}')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 4. GAN Training Loop"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "def train_gan(G, D, dataloader, epochs=200, latent_dim=16, lr=2e-4):\n",
+            "    \"\"\"Обучение GAN\"\"\"\n",
+            "    \n",
+            "    G = G.to(device)\n",
+            "    D = D.to(device)\n",
+            "    \n",
+            "    optimizer_G = optim.Adam(G.parameters(), lr=lr, betas=(0.5, 0.999))\n",
+            "    optimizer_D = optim.Adam(D.parameters(), lr=lr, betas=(0.5, 0.999))\n",
+            "    \n",
+            "    criterion = nn.BCELoss()\n",
+            "    \n",
+            "    history = {'G_loss': [], 'D_loss': [], 'D_real': [], 'D_fake': []}\n",
+            "    \n",
+            "    for epoch in range(epochs):\n",
+            "        G_losses = []\n",
+            "        D_losses = []\n",
+            "        D_reals = []\n",
+            "        D_fakes = []\n",
+            "        \n",
+            "        for batch in dataloader:\n",
+            "            real_imgs = batch[0].to(device)\n",
+            "            batch_size = real_imgs.size(0)\n",
+            "            \n",
+            "            # Labels\n",
+            "            real_labels = torch.ones(batch_size, 1).to(device)\n",
+            "            fake_labels = torch.zeros(batch_size, 1).to(device)\n",
+            "            \n",
+            "            # ---------------------\n",
+            "            # Train Discriminator\n",
+            "            # ---------------------\n",
+            "            optimizer_D.zero_grad()\n",
+            "            \n",
+            "            # Real images\n",
+            "            real_pred = D(real_imgs)\n",
+            "            d_loss_real = criterion(real_pred, real_labels)\n",
+            "            \n",
+            "            # Fake images\n",
+            "            z = torch.randn(batch_size, latent_dim).to(device)\n",
+            "            fake_imgs = G(z)\n",
+            "            fake_pred = D(fake_imgs.detach())\n",
+            "            d_loss_fake = criterion(fake_pred, fake_labels)\n",
+            "            \n",
+            "            d_loss = d_loss_real + d_loss_fake\n",
+            "            d_loss.backward()\n",
+            "            optimizer_D.step()\n",
+            "            \n",
+            "            # ---------------------\n",
+            "            # Train Generator\n",
+            "            # ---------------------\n",
+            "            optimizer_G.zero_grad()\n",
+            "            \n",
+            "            z = torch.randn(batch_size, latent_dim).to(device)\n",
+            "            fake_imgs = G(z)\n",
+            "            fake_pred = D(fake_imgs)\n",
+            "            \n",
+            "            # Generator wants D to think fakes are real\n",
+            "            g_loss = criterion(fake_pred, real_labels)\n",
+            "            g_loss.backward()\n",
+            "            optimizer_G.step()\n",
+            "            \n",
+            "            # Metrics\n",
+            "            G_losses.append(g_loss.item())\n",
+            "            D_losses.append(d_loss.item())\n",
+            "            D_reals.append(real_pred.mean().item())\n",
+            "            D_fakes.append(fake_pred.mean().item())\n",
+            "        \n",
+            "        history['G_loss'].append(np.mean(G_losses))\n",
+            "        history['D_loss'].append(np.mean(D_losses))\n",
+            "        history['D_real'].append(np.mean(D_reals))\n",
+            "        history['D_fake'].append(np.mean(D_fakes))\n",
+            "        \n",
+            "        if (epoch + 1) % 50 == 0:\n",
+            "            print(f'Epoch {epoch+1}, G: {np.mean(G_losses):.4f}, '\n",
+            "                  f'D: {np.mean(D_losses):.4f}, '\n",
+            "                  f'D(real): {np.mean(D_reals):.2f}, D(fake): {np.mean(D_fakes):.2f}')\n",
+            "    \n",
+            "    return history\n",
+            "\n",
+            "# Обучение\n",
+            "latent_dim = 16\n",
+            "G = Generator(latent_dim)\n",
+            "D = Discriminator()\n",
+            "\n",
+            "print('Обучение GAN...\\n')\n",
+            "history = train_gan(G, D, dataloader, epochs=200, latent_dim=latent_dim)"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Визуализация обучения\n",
+            "fig, axes = plt.subplots(1, 2, figsize=(12, 4))\n",
+            "\n",
+            "# Losses\n",
+            "axes[0].plot(history['G_loss'], label='Generator')\n",
+            "axes[0].plot(history['D_loss'], label='Discriminator')\n",
+            "axes[0].set_xlabel('Epoch')\n",
+            "axes[0].set_ylabel('Loss')\n",
+            "axes[0].set_title('GAN Training Losses')\n",
+            "axes[0].legend()\n",
+            "\n",
+            "# Discriminator outputs\n",
+            "axes[1].plot(history['D_real'], label='D(real)')\n",
+            "axes[1].plot(history['D_fake'], label='D(fake)')\n",
+            "axes[1].axhline(y=0.5, color='gray', linestyle='--')\n",
+            "axes[1].set_xlabel('Epoch')\n",
+            "axes[1].set_ylabel('Probability')\n",
+            "axes[1].set_title('Discriminator Outputs')\n",
+            "axes[1].legend()\n",
+            "\n",
+            "plt.tight_layout()\n",
+            "plt.show()"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 5. Генерация образцов"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Генерация\n",
+            "G.eval()\n",
+            "with torch.no_grad():\n",
+            "    z = torch.randn(16, latent_dim).to(device)\n",
+            "    generated = G(z).cpu()\n",
+            "\n",
+            "# Визуализация\n",
+            "fig, axes = plt.subplots(2, 8, figsize=(12, 3))\n",
+            "for i in range(16):\n",
+            "    ax = axes[i//8, i%8]\n",
+            "    ax.imshow(generated[i, 0], cmap='gray')\n",
+            "    ax.axis('off')\n",
+            "\n",
+            "plt.suptitle('GAN Generated Samples')\n",
+            "plt.show()"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 6. Сравнение Real vs Generated"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Сравнение\n",
+            "fig, axes = plt.subplots(2, 8, figsize=(12, 3))\n",
+            "\n",
+            "# Real\n",
+            "for i in range(8):\n",
+            "    axes[0, i].imshow(X[i, 0], cmap='gray')\n",
+            "    axes[0, i].axis('off')\n",
+            "axes[0, 0].set_ylabel('Real', fontsize=12)\n",
+            "\n",
+            "# Generated\n",
+            "G.eval()\n",
+            "with torch.no_grad():\n",
+            "    z = torch.randn(8, latent_dim).to(device)\n",
+            "    fake = G(z).cpu()\n",
+            "\n",
+            "for i in range(8):\n",
+            "    axes[1, i].imshow(fake[i, 0], cmap='gray')\n",
+            "    axes[1, i].axis('off')\n",
+            "axes[1, 0].set_ylabel('Fake', fontsize=12)\n",
+            "\n",
+            "plt.suptitle('Real vs Generated')\n",
+            "plt.tight_layout()\n",
+            "plt.show()"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 7. Latent Space Interpolation"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Интерполяция в latent space\n",
+            "G.eval()\n",
+            "with torch.no_grad():\n",
+            "    z1 = torch.randn(1, latent_dim).to(device)\n",
+            "    z2 = torch.randn(1, latent_dim).to(device)\n",
+            "    \n",
+            "    n_steps = 8\n",
+            "    interpolations = []\n",
+            "    \n",
+            "    for alpha in np.linspace(0, 1, n_steps):\n",
+            "        z = (1 - alpha) * z1 + alpha * z2\n",
+            "        img = G(z)\n",
+            "        interpolations.append(img[0, 0].cpu())\n",
+            "\n",
+            "# Визуализация\n",
+            "fig, axes = plt.subplots(1, n_steps, figsize=(12, 2))\n",
+            "for i, img in enumerate(interpolations):\n",
+            "    axes[i].imshow(img, cmap='gray')\n",
+            "    axes[i].axis('off')\n",
+            "\n",
+            "plt.suptitle('Latent Space Interpolation')\n",
+            "plt.show()"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 8. Практические советы\n",
+            "\n",
+            "### Проблемы GAN:\n",
+            "\n",
+            "1. **Mode Collapse** - генератор производит ограниченное разнообразие\n",
+            "2. **Training Instability** - баланс между G и D\n",
+            "3. **Vanishing Gradients** - если D слишком хорош\n",
+            "\n",
+            "### Решения:\n",
+            "\n",
+            "| Проблема | Решение |\n",
+            "|----------|----------|\n",
+            "| Mode Collapse | Mini-batch discrimination, Unrolled GAN |\n",
+            "| Instability | Spectral normalization, WGAN-GP |\n",
+            "| Vanishing gradients | Wasserstein loss |\n",
+            "\n",
+            "### Best Practices:\n",
+            "\n",
+            "- LeakyReLU в D, ReLU/Tanh в G\n",
+            "- BatchNorm в G (не в первом слое D)\n",
+            "- Adam с beta1=0.5\n",
+            "- Label smoothing (0.9 вместо 1.0)"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## Итоги\n",
+            "\n",
+            "### Что мы изучили:\n",
+            "\n",
+            "1. **GAN архитектура** - Generator и Discriminator\n",
+            "2. **Adversarial training** - minimax game\n",
+            "3. **Training dynamics** - баланс G и D\n",
+            "4. **Latent space** - интерполяция\n",
+            "\n",
+            "### Ключевая формула:\n",
+            "\n",
+            "$$\\min_G \\max_D \\mathbb{E}[\\log D(x)] + \\mathbb{E}[\\log(1 - D(G(z)))]$$\n",
+            "\n",
+            "### Варианты GAN:\n",
+            "\n",
+            "- **DCGAN** - convolutional GAN\n",
+            "- **WGAN** - Wasserstein distance\n",
+            "- **StyleGAN** - style-based generator\n",
+            "- **CycleGAN** - unpaired image translation\n",
+            "\n",
+            "### Следующий шаг:\n",
+            "\n",
+            "В ноутбуке 03 изучим Diffusion Models - современный state-of-the-art в генерации."
+        ]
+    })
+
+    notebook = {
+        "nbformat": 4,
+        "nbformat_minor": 4,
+        "metadata": {
+            "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+            "language_info": {"name": "python", "version": "3.8.0"}
+        },
+        "cells": cells
+    }
+    return notebook
+
+if __name__ == "__main__":
+    notebook = create_notebook()
+    output_path = "/home/user/test/notebooks/phase10_generative_models/02_gan_basics.ipynb"
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(notebook, f, ensure_ascii=False, indent=1)
+    print(f"Notebook created: {output_path}")
+    print(f"Total cells: {len(notebook['cells'])}")
