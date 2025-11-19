@@ -1,0 +1,709 @@
+#!/usr/bin/env python3
+"""
+Скрипт для создания 02_feature_engineering.ipynb
+Feature Engineering и EDA для торговых данных
+"""
+
+import json
+
+def create_notebook():
+    cells = []
+
+    # Cell 1: Title
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "# End-to-End Trading Project\n",
+            "## Часть 2: Feature Engineering и EDA\n",
+            "\n",
+            "### В этом ноутбуке:\n",
+            "\n",
+            "1. **Загрузка данных** из предыдущего ноутбука\n",
+            "2. **Технические индикаторы** - SMA, EMA, RSI, MACD, Bollinger Bands, ATR\n",
+            "3. **Лаговые признаки** - прошлые значения для предсказания\n",
+            "4. **Целевые переменные** - что будем предсказывать\n",
+            "5. **EDA** - анализ признаков и их связей\n",
+            "6. **Подготовка данных** для моделирования"
+        ]
+    })
+
+    # Cell 2: Imports
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "import numpy as np\n",
+            "import pandas as pd\n",
+            "import matplotlib.pyplot as plt\n",
+            "import seaborn as sns\n",
+            "from sklearn.preprocessing import StandardScaler\n",
+            "import json\n",
+            "import os\n",
+            "import warnings\n",
+            "warnings.filterwarnings('ignore')\n",
+            "\n",
+            "plt.style.use('seaborn-v0_8-whitegrid')\n",
+            "np.random.seed(42)\n",
+            "\n",
+            "print('Библиотеки загружены')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    # Cell 3: Load Data
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Загружаем данные\n",
+            "data_dir = 'data'\n",
+            "df = pd.read_parquet(f'{data_dir}/market_data.parquet')\n",
+            "\n",
+            "with open(f'{data_dir}/metadata.json', 'r') as f:\n",
+            "    metadata = json.load(f)\n",
+            "\n",
+            "print(f'Загружено записей: {len(df):,}')\n",
+            "print(f'Период: {df[\"date\"].min().date()} - {df[\"date\"].max().date()}')\n",
+            "print(f'Акций: {df[\"ticker\"].nunique()}')\n",
+            "print(f'\\nКолонки: {df.columns.tolist()}')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    # Cell 4: Technical Indicators Section
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 1. Технические Индикаторы\n",
+            "\n",
+            "Создаём набор технических индикаторов, которые трейдеры используют для анализа:\n",
+            "\n",
+            "### Трендовые индикаторы:\n",
+            "- **SMA** (Simple Moving Average) - простая скользящая средняя\n",
+            "- **EMA** (Exponential Moving Average) - экспоненциальная скользящая средняя\n",
+            "\n",
+            "### Моментум индикаторы:\n",
+            "- **RSI** (Relative Strength Index) - индекс относительной силы\n",
+            "- **MACD** - схождение/расхождение скользящих средних\n",
+            "- **ROC** (Rate of Change) - скорость изменения\n",
+            "\n",
+            "### Волатильность:\n",
+            "- **Bollinger Bands** - полосы Боллинджера\n",
+            "- **ATR** (Average True Range) - средний истинный диапазон\n",
+            "\n",
+            "### Объёмные индикаторы:\n",
+            "- **OBV** (On-Balance Volume) - балансовый объём\n",
+            "- **VWAP** - средневзвешенная по объёму цена"
+        ]
+    })
+
+    # Cell 5: Technical Indicators Function
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "def add_technical_indicators(df):\n",
+            "    \"\"\"\n",
+            "    Добавляет полный набор технических индикаторов.\n",
+            "    Обрабатывает каждую акцию отдельно.\n",
+            "    \"\"\"\n",
+            "    result_dfs = []\n",
+            "    \n",
+            "    for ticker in df['ticker'].unique():\n",
+            "        ticker_df = df[df['ticker'] == ticker].copy().sort_values('date')\n",
+            "        \n",
+            "        close = ticker_df['close']\n",
+            "        high = ticker_df['high']\n",
+            "        low = ticker_df['low']\n",
+            "        volume = ticker_df['volume']\n",
+            "        \n",
+            "        # === Трендовые индикаторы ===\n",
+            "        \n",
+            "        # SMA\n",
+            "        ticker_df['sma_5'] = close.rolling(5).mean()\n",
+            "        ticker_df['sma_10'] = close.rolling(10).mean()\n",
+            "        ticker_df['sma_20'] = close.rolling(20).mean()\n",
+            "        ticker_df['sma_50'] = close.rolling(50).mean()\n",
+            "        ticker_df['sma_200'] = close.rolling(200).mean()\n",
+            "        \n",
+            "        # EMA\n",
+            "        ticker_df['ema_12'] = close.ewm(span=12).mean()\n",
+            "        ticker_df['ema_26'] = close.ewm(span=26).mean()\n",
+            "        ticker_df['ema_50'] = close.ewm(span=50).mean()\n",
+            "        \n",
+            "        # Позиция цены относительно SMA\n",
+            "        ticker_df['price_sma20_ratio'] = close / ticker_df['sma_20']\n",
+            "        ticker_df['price_sma50_ratio'] = close / ticker_df['sma_50']\n",
+            "        \n",
+            "        # Golden/Death Cross signals\n",
+            "        ticker_df['sma_cross'] = (ticker_df['sma_50'] > ticker_df['sma_200']).astype(int)\n",
+            "        \n",
+            "        # === Моментум индикаторы ===\n",
+            "        \n",
+            "        # RSI\n",
+            "        delta = close.diff()\n",
+            "        gain = delta.where(delta > 0, 0).rolling(14).mean()\n",
+            "        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()\n",
+            "        rs = gain / (loss + 1e-10)\n",
+            "        ticker_df['rsi'] = 100 - (100 / (1 + rs))\n",
+            "        \n",
+            "        # MACD\n",
+            "        ticker_df['macd'] = ticker_df['ema_12'] - ticker_df['ema_26']\n",
+            "        ticker_df['macd_signal'] = ticker_df['macd'].ewm(span=9).mean()\n",
+            "        ticker_df['macd_hist'] = ticker_df['macd'] - ticker_df['macd_signal']\n",
+            "        \n",
+            "        # ROC (Rate of Change)\n",
+            "        ticker_df['roc_5'] = close.pct_change(5) * 100\n",
+            "        ticker_df['roc_10'] = close.pct_change(10) * 100\n",
+            "        ticker_df['roc_20'] = close.pct_change(20) * 100\n",
+            "        \n",
+            "        # Momentum\n",
+            "        ticker_df['momentum_10'] = close - close.shift(10)\n",
+            "        \n",
+            "        # === Волатильность ===\n",
+            "        \n",
+            "        # Bollinger Bands\n",
+            "        bb_sma = close.rolling(20).mean()\n",
+            "        bb_std = close.rolling(20).std()\n",
+            "        ticker_df['bb_upper'] = bb_sma + 2 * bb_std\n",
+            "        ticker_df['bb_lower'] = bb_sma - 2 * bb_std\n",
+            "        ticker_df['bb_width'] = (ticker_df['bb_upper'] - ticker_df['bb_lower']) / bb_sma\n",
+            "        ticker_df['bb_position'] = (close - ticker_df['bb_lower']) / (ticker_df['bb_upper'] - ticker_df['bb_lower'] + 1e-10)\n",
+            "        \n",
+            "        # ATR\n",
+            "        tr1 = high - low\n",
+            "        tr2 = abs(high - close.shift())\n",
+            "        tr3 = abs(low - close.shift())\n",
+            "        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)\n",
+            "        ticker_df['atr'] = tr.rolling(14).mean()\n",
+            "        ticker_df['atr_percent'] = ticker_df['atr'] / close * 100\n",
+            "        \n",
+            "        # Historical Volatility\n",
+            "        ticker_df['volatility_10'] = close.pct_change().rolling(10).std() * np.sqrt(252)\n",
+            "        ticker_df['volatility_20'] = close.pct_change().rolling(20).std() * np.sqrt(252)\n",
+            "        \n",
+            "        # === Объёмные индикаторы ===\n",
+            "        \n",
+            "        # Volume SMA\n",
+            "        ticker_df['volume_sma_20'] = volume.rolling(20).mean()\n",
+            "        ticker_df['volume_ratio'] = volume / (ticker_df['volume_sma_20'] + 1e-10)\n",
+            "        \n",
+            "        # OBV (On-Balance Volume)\n",
+            "        obv = [0]\n",
+            "        for i in range(1, len(close)):\n",
+            "            if close.iloc[i] > close.iloc[i-1]:\n",
+            "                obv.append(obv[-1] + volume.iloc[i])\n",
+            "            elif close.iloc[i] < close.iloc[i-1]:\n",
+            "                obv.append(obv[-1] - volume.iloc[i])\n",
+            "            else:\n",
+            "                obv.append(obv[-1])\n",
+            "        ticker_df['obv'] = obv\n",
+            "        ticker_df['obv_sma'] = ticker_df['obv'].rolling(20).mean()\n",
+            "        \n",
+            "        # === Ценовые паттерны ===\n",
+            "        \n",
+            "        # Свечные паттерны (упрощённо)\n",
+            "        ticker_df['body'] = close - ticker_df['open']\n",
+            "        ticker_df['body_percent'] = ticker_df['body'] / ticker_df['open'] * 100\n",
+            "        ticker_df['upper_shadow'] = high - pd.concat([close, ticker_df['open']], axis=1).max(axis=1)\n",
+            "        ticker_df['lower_shadow'] = pd.concat([close, ticker_df['open']], axis=1).min(axis=1) - low\n",
+            "        \n",
+            "        # Daily range\n",
+            "        ticker_df['daily_range'] = (high - low) / low * 100\n",
+            "        \n",
+            "        # Gap\n",
+            "        ticker_df['gap'] = (ticker_df['open'] - close.shift()) / close.shift() * 100\n",
+            "        \n",
+            "        result_dfs.append(ticker_df)\n",
+            "    \n",
+            "    return pd.concat(result_dfs, ignore_index=True)\n",
+            "\n",
+            "# Применяем\n",
+            "df = add_technical_indicators(df)\n",
+            "\n",
+            "print(f'Всего признаков: {len(df.columns)}')\n",
+            "print(f'\\nНовые признаки:')\n",
+            "new_cols = [c for c in df.columns if c not in ['date', 'ticker', 'open', 'high', 'low', 'close', 'volume', 'sector', 'is_earnings', 'is_dividend', 'event_impact']]\n",
+            "print(new_cols)"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    # Cell 6: Lag Features
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 2. Лаговые Признаки\n",
+            "\n",
+            "Добавляем прошлые значения как признаки для предсказания будущего."
+        ]
+    })
+
+    # Cell 7: Lag Features Code
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "def add_lag_features(df, lags=[1, 2, 3, 5, 10]):\n",
+            "    \"\"\"\n",
+            "    Добавляет лаговые признаки для ключевых переменных.\n",
+            "    \"\"\"\n",
+            "    result_dfs = []\n",
+            "    \n",
+            "    for ticker in df['ticker'].unique():\n",
+            "        ticker_df = df[df['ticker'] == ticker].copy().sort_values('date')\n",
+            "        \n",
+            "        # Лаги для доходности\n",
+            "        ticker_df['return'] = ticker_df['close'].pct_change()\n",
+            "        for lag in lags:\n",
+            "            ticker_df[f'return_lag_{lag}'] = ticker_df['return'].shift(lag)\n",
+            "        \n",
+            "        # Лаги для объёма\n",
+            "        for lag in [1, 5]:\n",
+            "            ticker_df[f'volume_ratio_lag_{lag}'] = ticker_df['volume_ratio'].shift(lag)\n",
+            "        \n",
+            "        # Лаги для RSI\n",
+            "        for lag in [1, 5]:\n",
+            "            ticker_df[f'rsi_lag_{lag}'] = ticker_df['rsi'].shift(lag)\n",
+            "        \n",
+            "        # Лаги для волатильности\n",
+            "        ticker_df['volatility_lag_1'] = ticker_df['volatility_20'].shift(1)\n",
+            "        \n",
+            "        # Rolling статистики доходности\n",
+            "        ticker_df['return_mean_5'] = ticker_df['return'].rolling(5).mean()\n",
+            "        ticker_df['return_std_5'] = ticker_df['return'].rolling(5).std()\n",
+            "        ticker_df['return_mean_20'] = ticker_df['return'].rolling(20).mean()\n",
+            "        ticker_df['return_std_20'] = ticker_df['return'].rolling(20).std()\n",
+            "        \n",
+            "        # Streak (серия положительных/отрицательных дней)\n",
+            "        ticker_df['positive_return'] = (ticker_df['return'] > 0).astype(int)\n",
+            "        \n",
+            "        result_dfs.append(ticker_df)\n",
+            "    \n",
+            "    return pd.concat(result_dfs, ignore_index=True)\n",
+            "\n",
+            "# Применяем\n",
+            "df = add_lag_features(df)\n",
+            "\n",
+            "print(f'Всего признаков после лагов: {len(df.columns)}')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    # Cell 8: Target Variables
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 3. Целевые Переменные\n",
+            "\n",
+            "Создаём несколько целевых переменных для разных задач:\n",
+            "\n",
+            "- **Регрессия**: будущая доходность\n",
+            "- **Классификация**: направление движения\n",
+            "- **Multi-horizon**: прогноз на разные горизонты"
+        ]
+    })
+
+    # Cell 9: Target Variables Code
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "def add_target_variables(df):\n",
+            "    \"\"\"\n",
+            "    Добавляет целевые переменные для предсказания.\n",
+            "    \"\"\"\n",
+            "    result_dfs = []\n",
+            "    \n",
+            "    for ticker in df['ticker'].unique():\n",
+            "        ticker_df = df[df['ticker'] == ticker].copy().sort_values('date')\n",
+            "        \n",
+            "        # Будущие доходности (regression targets)\n",
+            "        ticker_df['target_return_1d'] = ticker_df['close'].shift(-1) / ticker_df['close'] - 1\n",
+            "        ticker_df['target_return_5d'] = ticker_df['close'].shift(-5) / ticker_df['close'] - 1\n",
+            "        ticker_df['target_return_10d'] = ticker_df['close'].shift(-10) / ticker_df['close'] - 1\n",
+            "        ticker_df['target_return_20d'] = ticker_df['close'].shift(-20) / ticker_df['close'] - 1\n",
+            "        \n",
+            "        # Направление (classification targets)\n",
+            "        ticker_df['target_direction_1d'] = (ticker_df['target_return_1d'] > 0).astype(int)\n",
+            "        ticker_df['target_direction_5d'] = (ticker_df['target_return_5d'] > 0).astype(int)\n",
+            "        \n",
+            "        # Значительное движение (>1%)\n",
+            "        ticker_df['target_big_move_up'] = (ticker_df['target_return_1d'] > 0.01).astype(int)\n",
+            "        ticker_df['target_big_move_down'] = (ticker_df['target_return_1d'] < -0.01).astype(int)\n",
+            "        \n",
+            "        # Будущая волатильность\n",
+            "        ticker_df['target_volatility_5d'] = ticker_df['return'].shift(-1).rolling(5).std().shift(-4) * np.sqrt(252)\n",
+            "        \n",
+            "        result_dfs.append(ticker_df)\n",
+            "    \n",
+            "    return pd.concat(result_dfs, ignore_index=True)\n",
+            "\n",
+            "# Применяем\n",
+            "df = add_target_variables(df)\n",
+            "\n",
+            "print('Целевые переменные добавлены:')\n",
+            "target_cols = [c for c in df.columns if c.startswith('target_')]\n",
+            "for col in target_cols:\n",
+            "    print(f'  {col}')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    # Cell 10: EDA Section
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 4. Exploratory Data Analysis"
+        ]
+    })
+
+    # Cell 11: Feature Statistics
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Базовая статистика признаков\n",
+            "feature_cols = [c for c in df.columns if c not in \n",
+            "                ['date', 'ticker', 'sector', 'is_earnings', 'is_dividend'] \n",
+            "                and not c.startswith('target_')]\n",
+            "\n",
+            "print(f'Всего признаков для моделирования: {len(feature_cols)}')\n",
+            "print(f'\\nСтатистика по ключевым признакам:')\n",
+            "\n",
+            "key_features = ['close', 'return', 'rsi', 'macd', 'bb_position', 'atr_percent', 'volume_ratio']\n",
+            "df[key_features].describe().round(4)"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    # Cell 12: Feature Distributions
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Распределения ключевых признаков\n",
+            "fig, axes = plt.subplots(2, 4, figsize=(16, 8))\n",
+            "\n",
+            "features_to_plot = ['return', 'rsi', 'macd_hist', 'bb_position', \n",
+            "                    'atr_percent', 'volume_ratio', 'roc_10', 'volatility_20']\n",
+            "\n",
+            "for i, (ax, feat) in enumerate(zip(axes.flat, features_to_plot)):\n",
+            "    data = df[feat].dropna()\n",
+            "    ax.hist(data, bins=50, edgecolor='black', alpha=0.7)\n",
+            "    ax.axvline(data.mean(), color='red', linestyle='--', label=f'Mean: {data.mean():.3f}')\n",
+            "    ax.set_title(feat)\n",
+            "    ax.legend(fontsize=8)\n",
+            "\n",
+            "plt.suptitle('Распределения ключевых признаков', fontsize=14)\n",
+            "plt.tight_layout()\n",
+            "plt.show()"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    # Cell 13: Correlation with Target
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Корреляция признаков с целевой переменной\n",
+            "df_clean = df.dropna(subset=['target_return_1d'])\n",
+            "\n",
+            "correlations = []\n",
+            "for col in feature_cols:\n",
+            "    if col in df_clean.columns:\n",
+            "        corr = df_clean[col].corr(df_clean['target_return_1d'])\n",
+            "        if not np.isnan(corr):\n",
+            "            correlations.append({'feature': col, 'correlation': corr})\n",
+            "\n",
+            "corr_df = pd.DataFrame(correlations)\n",
+            "corr_df['abs_correlation'] = corr_df['correlation'].abs()\n",
+            "corr_df = corr_df.sort_values('abs_correlation', ascending=False)\n",
+            "\n",
+            "# Визуализация топ-20\n",
+            "top_20 = corr_df.head(20)\n",
+            "\n",
+            "fig, ax = plt.subplots(figsize=(10, 8))\n",
+            "colors = ['green' if c > 0 else 'red' for c in top_20['correlation']]\n",
+            "ax.barh(range(len(top_20)), top_20['correlation'], color=colors)\n",
+            "ax.set_yticks(range(len(top_20)))\n",
+            "ax.set_yticklabels(top_20['feature'])\n",
+            "ax.set_xlabel('Корреляция с target_return_1d')\n",
+            "ax.set_title('Топ-20 признаков по корреляции с целевой переменной')\n",
+            "ax.axvline(x=0, color='black', linewidth=0.5)\n",
+            "ax.invert_yaxis()\n",
+            "\n",
+            "plt.tight_layout()\n",
+            "plt.show()\n",
+            "\n",
+            "print('\\nТоп-10 признаков:')\n",
+            "print(corr_df[['feature', 'correlation']].head(10).to_string(index=False))"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    # Cell 14: Feature Correlation Matrix
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Корреляция между признаками (для выявления мультиколлинеарности)\n",
+            "selected_features = ['return', 'rsi', 'macd', 'macd_hist', 'bb_position', 'bb_width',\n",
+            "                    'atr_percent', 'volume_ratio', 'roc_10', 'volatility_20',\n",
+            "                    'momentum_10', 'price_sma20_ratio']\n",
+            "\n",
+            "corr_matrix = df[selected_features].corr()\n",
+            "\n",
+            "fig, ax = plt.subplots(figsize=(10, 8))\n",
+            "mask = np.triu(np.ones_like(corr_matrix, dtype=bool))\n",
+            "sns.heatmap(corr_matrix, mask=mask, annot=True, cmap='coolwarm', center=0,\n",
+            "            fmt='.2f', ax=ax)\n",
+            "ax.set_title('Корреляция между признаками')\n",
+            "plt.tight_layout()\n",
+            "plt.show()\n",
+            "\n",
+            "# Выявляем сильные корреляции\n",
+            "print('\\nСильно коррелированные пары (|r| > 0.7):')\n",
+            "for i in range(len(corr_matrix.columns)):\n",
+            "    for j in range(i+1, len(corr_matrix.columns)):\n",
+            "        if abs(corr_matrix.iloc[i, j]) > 0.7:\n",
+            "            print(f'  {corr_matrix.columns[i]} - {corr_matrix.columns[j]}: {corr_matrix.iloc[i, j]:.2f}')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    # Cell 15: Target Analysis
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Анализ целевой переменной\n",
+            "fig, axes = plt.subplots(2, 2, figsize=(12, 10))\n",
+            "\n",
+            "# 1. Распределение доходности\n",
+            "returns = df['target_return_1d'].dropna()\n",
+            "axes[0, 0].hist(returns, bins=100, edgecolor='black', alpha=0.7)\n",
+            "axes[0, 0].axvline(0, color='red', linestyle='--')\n",
+            "axes[0, 0].set_title('Распределение 1-дневной доходности')\n",
+            "axes[0, 0].set_xlabel('Доходность')\n",
+            "\n",
+            "# 2. QQ-plot\n",
+            "from scipy import stats\n",
+            "stats.probplot(returns, dist=\"norm\", plot=axes[0, 1])\n",
+            "axes[0, 1].set_title('QQ-Plot (сравнение с нормальным распределением)')\n",
+            "\n",
+            "# 3. Баланс классов\n",
+            "direction_counts = df['target_direction_1d'].value_counts()\n",
+            "axes[1, 0].bar(['Down (0)', 'Up (1)'], direction_counts.values)\n",
+            "for i, v in enumerate(direction_counts.values):\n",
+            "    axes[1, 0].text(i, v + 100, f'{v:,}\\n({v/len(df)*100:.1f}%)', ha='center')\n",
+            "axes[1, 0].set_title('Баланс классов (направление)')\n",
+            "axes[1, 0].set_ylabel('Количество')\n",
+            "\n",
+            "# 4. Автокорреляция доходностей\n",
+            "from pandas.plotting import autocorrelation_plot\n",
+            "sample_ticker = df[df['ticker'] == 'TECH_A']['return'].dropna()\n",
+            "autocorrelation_plot(sample_ticker, ax=axes[1, 1])\n",
+            "axes[1, 1].set_title('Автокорреляция доходностей (TECH_A)')\n",
+            "axes[1, 1].set_xlim(0, 50)\n",
+            "\n",
+            "plt.tight_layout()\n",
+            "plt.show()\n",
+            "\n",
+            "print(f'\\nСтатистика целевой переменной:')\n",
+            "print(f'Mean: {returns.mean()*100:.4f}%')\n",
+            "print(f'Std: {returns.std()*100:.4f}%')\n",
+            "print(f'Skewness: {returns.skew():.4f}')\n",
+            "print(f'Kurtosis: {returns.kurtosis():.4f}')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    # Cell 16: Data Preparation
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 5. Подготовка Данных для Моделирования"
+        ]
+    })
+
+    # Cell 17: Clean and Save
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Удаляем строки с NaN в целевых переменных\n",
+            "df_clean = df.dropna(subset=['target_return_1d', 'target_direction_1d']).copy()\n",
+            "\n",
+            "# Удаляем строки с NaN в важных признаках\n",
+            "important_features = ['rsi', 'macd', 'bb_position', 'atr_percent', 'sma_200']\n",
+            "df_clean = df_clean.dropna(subset=important_features)\n",
+            "\n",
+            "print(f'Записей после очистки: {len(df_clean):,}')\n",
+            "print(f'Удалено: {len(df) - len(df_clean):,} ({(len(df) - len(df_clean))/len(df)*100:.1f}%)')\n",
+            "\n",
+            "# Проверяем пропуски\n",
+            "missing = df_clean.isnull().sum()\n",
+            "missing_cols = missing[missing > 0]\n",
+            "if len(missing_cols) > 0:\n",
+            "    print(f'\\nКолонки с пропусками:')\n",
+            "    print(missing_cols)\n",
+            "else:\n",
+            "    print('\\nПропусков в данных нет')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    # Cell 18: Define Feature Sets
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Определяем наборы признаков для моделирования\n",
+            "\n",
+            "# Все доступные признаки\n",
+            "all_features = [c for c in df_clean.columns if c not in \n",
+            "                ['date', 'ticker', 'sector', 'is_earnings', 'is_dividend', 'event_impact']\n",
+            "                and not c.startswith('target_')]\n",
+            "\n",
+            "# Базовый набор (основные индикаторы)\n",
+            "basic_features = [\n",
+            "    'open', 'high', 'low', 'close', 'volume',\n",
+            "    'return', 'rsi', 'macd', 'macd_hist', 'bb_position', 'atr_percent',\n",
+            "    'volume_ratio', 'volatility_20'\n",
+            "]\n",
+            "\n",
+            "# Расширенный набор\n",
+            "extended_features = basic_features + [\n",
+            "    'sma_20', 'sma_50', 'ema_12', 'ema_26',\n",
+            "    'bb_width', 'roc_10', 'momentum_10',\n",
+            "    'price_sma20_ratio', 'price_sma50_ratio',\n",
+            "    'return_lag_1', 'return_lag_5', 'rsi_lag_1',\n",
+            "    'return_mean_5', 'return_std_5'\n",
+            "]\n",
+            "\n",
+            "# Проверяем наличие всех признаков\n",
+            "missing_features = [f for f in extended_features if f not in df_clean.columns]\n",
+            "if missing_features:\n",
+            "    print(f'Отсутствующие признаки: {missing_features}')\n",
+            "    extended_features = [f for f in extended_features if f in df_clean.columns]\n",
+            "\n",
+            "print(f'Всего признаков: {len(all_features)}')\n",
+            "print(f'Базовый набор: {len(basic_features)} признаков')\n",
+            "print(f'Расширенный набор: {len(extended_features)} признаков')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    # Cell 19: Save Processed Data
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Сохраняем обработанные данные\n",
+            "df_clean.to_parquet(f'{data_dir}/processed_data.parquet', index=False)\n",
+            "\n",
+            "# Сохраняем списки признаков\n",
+            "feature_sets = {\n",
+            "    'all_features': all_features,\n",
+            "    'basic_features': basic_features,\n",
+            "    'extended_features': extended_features\n",
+            "}\n",
+            "\n",
+            "with open(f'{data_dir}/feature_sets.json', 'w') as f:\n",
+            "    json.dump(feature_sets, f, indent=2)\n",
+            "\n",
+            "print('Данные сохранены:')\n",
+            "print(f'  {data_dir}/processed_data.parquet')\n",
+            "print(f'  {data_dir}/feature_sets.json')\n",
+            "print(f'\\nРазмер processed_data: {os.path.getsize(f\"{data_dir}/processed_data.parquet\")/1024/1024:.2f} MB')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    # Cell 20: Summary
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## Итоги\n",
+            "\n",
+            "### Созданные признаки:\n",
+            "\n",
+            "- **Трендовые**: SMA (5, 10, 20, 50, 200), EMA (12, 26, 50)\n",
+            "- **Моментум**: RSI, MACD, ROC, Momentum\n",
+            "- **Волатильность**: Bollinger Bands, ATR, Historical Volatility\n",
+            "- **Объём**: OBV, Volume Ratio\n",
+            "- **Лаговые**: прошлые доходности и индикаторы\n",
+            "\n",
+            "### Целевые переменные:\n",
+            "\n",
+            "- Доходность на 1, 5, 10, 20 дней\n",
+            "- Направление движения (binary)\n",
+            "- Значительные движения (>1%)\n",
+            "\n",
+            "### Выводы EDA:\n",
+            "\n",
+            "- Доходности имеют тяжёлые хвосты (высокий kurtosis)\n",
+            "- Низкая автокорреляция доходностей (эффективность рынка)\n",
+            "- Классы относительно сбалансированы (~50/50)\n",
+            "- Есть мультиколлинеарность между похожими индикаторами\n",
+            "\n",
+            "### Следующий шаг:\n",
+            "\n",
+            "В ноутбуке 03_classical_ml мы построим baseline модели:\n",
+            "- Logistic Regression\n",
+            "- Random Forest\n",
+            "- XGBoost / LightGBM"
+        ]
+    })
+
+    # Create notebook
+    notebook = {
+        "nbformat": 4,
+        "nbformat_minor": 4,
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3"
+            },
+            "language_info": {
+                "name": "python",
+                "version": "3.8.0"
+            }
+        },
+        "cells": cells
+    }
+
+    return notebook
+
+if __name__ == "__main__":
+    notebook = create_notebook()
+    output_path = "/home/user/test/notebooks/end_to_end_trading/02_feature_engineering.ipynb"
+
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(notebook, f, ensure_ascii=False, indent=1)
+
+    print(f"Notebook created: {output_path}")
+    print(f"Total cells: {len(notebook['cells'])}")
