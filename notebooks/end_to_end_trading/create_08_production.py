@@ -1,0 +1,494 @@
+#!/usr/bin/env python3
+"""
+Скрипт для создания 08_production_mlops.ipynb
+Production API и MLOps
+"""
+
+import json
+
+def create_notebook():
+    cells = []
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "# End-to-End Trading Project\n",
+            "## Часть 8: Production API и MLOps\n",
+            "\n",
+            "### В этом ноутбуке:\n",
+            "\n",
+            "1. **FastAPI сервис** для real-time прогнозов\n",
+            "2. **Model Registry** и версионирование\n",
+            "3. **Мониторинг** производительности\n",
+            "4. **Data Drift Detection**\n",
+            "5. **CI/CD Pipeline** (концепт)"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "import numpy as np\n",
+            "import pandas as pd\n",
+            "import matplotlib.pyplot as plt\n",
+            "import joblib\n",
+            "import json\n",
+            "from datetime import datetime\n",
+            "from scipy import stats\n",
+            "import warnings\n",
+            "warnings.filterwarnings('ignore')\n",
+            "\n",
+            "plt.style.use('seaborn-v0_8-whitegrid')\n",
+            "print('Библиотеки загружены')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 1. FastAPI Prediction Service\n",
+            "\n",
+            "Создаём API для получения торговых сигналов в реальном времени."
+        ]
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Код FastAPI сервиса (сохраним как файл)\n",
+            "\n",
+            "fastapi_code = '''\n",
+            "from fastapi import FastAPI, HTTPException\n",
+            "from pydantic import BaseModel\n",
+            "import numpy as np\n",
+            "import joblib\n",
+            "import json\n",
+            "from typing import List, Dict\n",
+            "\n",
+            "app = FastAPI(title=\"Trading Signal API\", version=\"1.0\")\n",
+            "\n",
+            "# Загружаем модель и конфиг\n",
+            "model = joblib.load(\"models/lightgbm.joblib\")\n",
+            "scaler = joblib.load(\"models/scaler.joblib\")\n",
+            "with open(\"data/feature_sets.json\") as f:\n",
+            "    config = json.load(f)\n",
+            "\n",
+            "class PredictionRequest(BaseModel):\n",
+            "    features: Dict[str, float]\n",
+            "\n",
+            "class PredictionResponse(BaseModel):\n",
+            "    probability: float\n",
+            "    signal: str\n",
+            "    confidence: str\n",
+            "    timestamp: str\n",
+            "\n",
+            "@app.get(\"/health\")\n",
+            "def health_check():\n",
+            "    return {\"status\": \"healthy\", \"model_version\": \"1.0\"}\n",
+            "\n",
+            "@app.post(\"/predict\", response_model=PredictionResponse)\n",
+            "def predict(request: PredictionRequest):\n",
+            "    try:\n",
+            "        # Извлекаем признаки\n",
+            "        feature_cols = config[\"extended_features\"]\n",
+            "        features = [request.features.get(f, 0) for f in feature_cols]\n",
+            "        X = np.array(features).reshape(1, -1)\n",
+            "        \n",
+            "        # Нормализация\n",
+            "        X_scaled = scaler.transform(X)\n",
+            "        \n",
+            "        # Прогноз\n",
+            "        proba = model.predict_proba(X_scaled)[0, 1]\n",
+            "        \n",
+            "        # Генерация сигнала\n",
+            "        if proba > 0.6:\n",
+            "            signal, confidence = \"BUY\", \"HIGH\"\n",
+            "        elif proba > 0.55:\n",
+            "            signal, confidence = \"BUY\", \"MEDIUM\"\n",
+            "        elif proba < 0.4:\n",
+            "            signal, confidence = \"SELL\", \"HIGH\"\n",
+            "        elif proba < 0.45:\n",
+            "            signal, confidence = \"SELL\", \"MEDIUM\"\n",
+            "        else:\n",
+            "            signal, confidence = \"HOLD\", \"LOW\"\n",
+            "        \n",
+            "        return PredictionResponse(\n",
+            "            probability=float(proba),\n",
+            "            signal=signal,\n",
+            "            confidence=confidence,\n",
+            "            timestamp=datetime.now().isoformat()\n",
+            "        )\n",
+            "    except Exception as e:\n",
+            "        raise HTTPException(status_code=500, detail=str(e))\n",
+            "\n",
+            "@app.get(\"/model/info\")\n",
+            "def model_info():\n",
+            "    return {\n",
+            "        \"model_type\": \"LightGBM\",\n",
+            "        \"num_features\": len(config[\"extended_features\"]),\n",
+            "        \"features\": config[\"extended_features\"]\n",
+            "    }\n",
+            "'''\n",
+            "\n",
+            "# Сохраняем код\n",
+            "with open('api_service.py', 'w') as f:\n",
+            "    f.write(fastapi_code)\n",
+            "\n",
+            "print('FastAPI код сохранён в api_service.py')\n",
+            "print('\\nЗапуск: uvicorn api_service:app --reload')\n",
+            "print('Docs: http://localhost:8000/docs')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 2. Model Registry"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "class ModelRegistry:\n",
+            "    \"\"\"\n",
+            "    Простой реестр моделей для версионирования.\n",
+            "    \"\"\"\n",
+            "    def __init__(self, registry_path='model_registry.json'):\n",
+            "        self.registry_path = registry_path\n",
+            "        self.registry = self._load_registry()\n",
+            "    \n",
+            "    def _load_registry(self):\n",
+            "        try:\n",
+            "            with open(self.registry_path, 'r') as f:\n",
+            "                return json.load(f)\n",
+            "        except FileNotFoundError:\n",
+            "            return {'models': [], 'current_production': None}\n",
+            "    \n",
+            "    def _save_registry(self):\n",
+            "        with open(self.registry_path, 'w') as f:\n",
+            "            json.dump(self.registry, f, indent=2, default=str)\n",
+            "    \n",
+            "    def register_model(self, model_name, model_path, metrics, description=''):\n",
+            "        version = len([m for m in self.registry['models'] if m['name'] == model_name]) + 1\n",
+            "        \n",
+            "        model_info = {\n",
+            "            'name': model_name,\n",
+            "            'version': version,\n",
+            "            'path': model_path,\n",
+            "            'metrics': metrics,\n",
+            "            'description': description,\n",
+            "            'registered_at': datetime.now().isoformat(),\n",
+            "            'status': 'staging'\n",
+            "        }\n",
+            "        \n",
+            "        self.registry['models'].append(model_info)\n",
+            "        self._save_registry()\n",
+            "        \n",
+            "        print(f'Модель {model_name} v{version} зарегистрирована')\n",
+            "        return model_info\n",
+            "    \n",
+            "    def promote_to_production(self, model_name, version):\n",
+            "        for model in self.registry['models']:\n",
+            "            if model['name'] == model_name and model['version'] == version:\n",
+            "                model['status'] = 'production'\n",
+            "                self.registry['current_production'] = f'{model_name}_v{version}'\n",
+            "                self._save_registry()\n",
+            "                print(f'{model_name} v{version} promoted to production')\n",
+            "                return\n",
+            "        print('Модель не найдена')\n",
+            "    \n",
+            "    def list_models(self):\n",
+            "        return pd.DataFrame(self.registry['models'])\n",
+            "\n",
+            "# Пример использования\n",
+            "registry = ModelRegistry()\n",
+            "\n",
+            "# Регистрируем текущую модель\n",
+            "registry.register_model(\n",
+            "    model_name='lightgbm_classifier',\n",
+            "    model_path='models/lightgbm.joblib',\n",
+            "    metrics={'accuracy': 0.52, 'roc_auc': 0.53},\n",
+            "    description='LightGBM baseline for direction prediction'\n",
+            ")\n",
+            "\n",
+            "registry.promote_to_production('lightgbm_classifier', 1)\n",
+            "\n",
+            "print('\\nЗарегистрированные модели:')\n",
+            "registry.list_models()"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 3. Data Drift Detection"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "class DriftDetector:\n",
+            "    \"\"\"\n",
+            "    Детектор дрифта данных.\n",
+            "    \"\"\"\n",
+            "    def __init__(self, reference_data, feature_names):\n",
+            "        self.reference_data = reference_data\n",
+            "        self.feature_names = feature_names\n",
+            "        self.reference_stats = self._calculate_stats(reference_data)\n",
+            "    \n",
+            "    def _calculate_stats(self, data):\n",
+            "        return {\n",
+            "            'mean': data.mean(axis=0),\n",
+            "            'std': data.std(axis=0),\n",
+            "            'median': np.median(data, axis=0)\n",
+            "        }\n",
+            "    \n",
+            "    def detect_drift(self, new_data, threshold=0.05):\n",
+            "        \"\"\"\n",
+            "        Детекция дрифта с помощью KS-теста.\n",
+            "        \"\"\"\n",
+            "        drift_results = []\n",
+            "        \n",
+            "        for i, feature in enumerate(self.feature_names):\n",
+            "            ref_col = self.reference_data[:, i]\n",
+            "            new_col = new_data[:, i]\n",
+            "            \n",
+            "            # KS test\n",
+            "            ks_stat, p_value = stats.ks_2samp(ref_col, new_col)\n",
+            "            \n",
+            "            drift_results.append({\n",
+            "                'feature': feature,\n",
+            "                'ks_statistic': ks_stat,\n",
+            "                'p_value': p_value,\n",
+            "                'drift_detected': p_value < threshold\n",
+            "            })\n",
+            "        \n",
+            "        return pd.DataFrame(drift_results)\n",
+            "\n",
+            "# Загружаем данные\n",
+            "data_dir = 'data'\n",
+            "df = pd.read_parquet(f'{data_dir}/processed_data.parquet')\n",
+            "with open(f'{data_dir}/feature_sets.json', 'r') as f:\n",
+            "    feature_sets = json.load(f)\n",
+            "\n",
+            "feature_cols = [f for f in feature_sets['extended_features'] if f in df.columns]\n",
+            "\n",
+            "# Reference: train data, New: test data\n",
+            "df = df.sort_values('date')\n",
+            "train_data = df.iloc[:int(len(df)*0.6)][feature_cols].values\n",
+            "test_data = df.iloc[int(len(df)*0.8):][feature_cols].values\n",
+            "\n",
+            "# Детекция дрифта\n",
+            "detector = DriftDetector(train_data, feature_cols)\n",
+            "drift_results = detector.detect_drift(test_data)\n",
+            "\n",
+            "print('Результаты детекции дрифта:\\n')\n",
+            "drifted = drift_results[drift_results['drift_detected']]\n",
+            "print(f'Признаков с дрифтом: {len(drifted)} из {len(feature_cols)}')\n",
+            "if len(drifted) > 0:\n",
+            "    print('\\nПризнаки с дрифтом:')\n",
+            "    print(drifted[['feature', 'ks_statistic', 'p_value']].to_string(index=False))"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Визуализация дрифта\n",
+            "fig, axes = plt.subplots(1, 2, figsize=(12, 4))\n",
+            "\n",
+            "# KS statistics по признакам\n",
+            "sorted_results = drift_results.sort_values('ks_statistic', ascending=False).head(10)\n",
+            "colors = ['red' if d else 'green' for d in sorted_results['drift_detected']]\n",
+            "axes[0].barh(range(len(sorted_results)), sorted_results['ks_statistic'], color=colors)\n",
+            "axes[0].set_yticks(range(len(sorted_results)))\n",
+            "axes[0].set_yticklabels(sorted_results['feature'])\n",
+            "axes[0].set_xlabel('KS Statistic')\n",
+            "axes[0].set_title('Top-10 Features by Drift')\n",
+            "axes[0].axvline(x=0.1, color='black', linestyle='--', alpha=0.5)\n",
+            "axes[0].invert_yaxis()\n",
+            "\n",
+            "# Distribution comparison для топ признака\n",
+            "top_feature_idx = feature_cols.index(sorted_results['feature'].iloc[0])\n",
+            "axes[1].hist(train_data[:, top_feature_idx], bins=50, alpha=0.5, label='Train', density=True)\n",
+            "axes[1].hist(test_data[:, top_feature_idx], bins=50, alpha=0.5, label='Test', density=True)\n",
+            "axes[1].set_xlabel(sorted_results['feature'].iloc[0])\n",
+            "axes[1].set_ylabel('Density')\n",
+            "axes[1].set_title(f'Distribution Comparison: {sorted_results[\"feature\"].iloc[0]}')\n",
+            "axes[1].legend()\n",
+            "\n",
+            "plt.tight_layout()\n",
+            "plt.show()"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 4. Monitoring Dashboard (Concept)"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "code",
+        "metadata": {},
+        "source": [
+            "# Мониторинг метрик\n",
+            "class ModelMonitor:\n",
+            "    def __init__(self):\n",
+            "        self.metrics_history = []\n",
+            "    \n",
+            "    def log_prediction(self, prediction, actual=None, latency_ms=None):\n",
+            "        record = {\n",
+            "            'timestamp': datetime.now().isoformat(),\n",
+            "            'prediction': prediction,\n",
+            "            'actual': actual,\n",
+            "            'latency_ms': latency_ms\n",
+            "        }\n",
+            "        self.metrics_history.append(record)\n",
+            "    \n",
+            "    def get_summary(self, last_n=100):\n",
+            "        recent = self.metrics_history[-last_n:] if len(self.metrics_history) > last_n else self.metrics_history\n",
+            "        df = pd.DataFrame(recent)\n",
+            "        \n",
+            "        summary = {\n",
+            "            'total_predictions': len(df),\n",
+            "            'avg_latency_ms': df['latency_ms'].mean() if 'latency_ms' in df else None\n",
+            "        }\n",
+            "        \n",
+            "        if 'actual' in df and df['actual'].notna().any():\n",
+            "            correct = (df['prediction'] > 0.5) == df['actual']\n",
+            "            summary['accuracy'] = correct.mean()\n",
+            "        \n",
+            "        return summary\n",
+            "\n",
+            "# Симуляция мониторинга\n",
+            "monitor = ModelMonitor()\n",
+            "\n",
+            "# Симулируем прогнозы\n",
+            "np.random.seed(42)\n",
+            "for _ in range(100):\n",
+            "    pred = np.random.uniform(0.3, 0.7)\n",
+            "    actual = np.random.choice([0, 1])\n",
+            "    latency = np.random.uniform(5, 50)\n",
+            "    monitor.log_prediction(pred, actual, latency)\n",
+            "\n",
+            "summary = monitor.get_summary()\n",
+            "print('Monitoring Summary:')\n",
+            "for key, value in summary.items():\n",
+            "    if value is not None:\n",
+            "        print(f'  {key}: {value:.3f}' if isinstance(value, float) else f'  {key}: {value}')"
+        ],
+        "execution_count": None,
+        "outputs": []
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## 5. CI/CD Pipeline (Concept)\n",
+            "\n",
+            "```yaml\n",
+            "# .github/workflows/ml_pipeline.yml\n",
+            "name: ML Pipeline\n",
+            "\n",
+            "on:\n",
+            "  push:\n",
+            "    branches: [main]\n",
+            "  schedule:\n",
+            "    - cron: '0 0 * * 0'  # Weekly retraining\n",
+            "\n",
+            "jobs:\n",
+            "  train:\n",
+            "    runs-on: ubuntu-latest\n",
+            "    steps:\n",
+            "      - uses: actions/checkout@v2\n",
+            "      - name: Setup Python\n",
+            "        uses: actions/setup-python@v2\n",
+            "      - name: Install dependencies\n",
+            "        run: pip install -r requirements.txt\n",
+            "      - name: Run training\n",
+            "        run: python train.py\n",
+            "      - name: Run tests\n",
+            "        run: pytest tests/\n",
+            "      - name: Check drift\n",
+            "        run: python check_drift.py\n",
+            "      - name: Deploy if passed\n",
+            "        if: success()\n",
+            "        run: python deploy.py\n",
+            "```"
+        ]
+    })
+
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": [
+            "## Итоги Проекта\n",
+            "\n",
+            "### Что мы создали:\n",
+            "\n",
+            "1. **Data Pipeline** - генерация и обработка данных\n",
+            "2. **Feature Engineering** - 40+ технических индикаторов\n",
+            "3. **ML Models** - от Logistic Regression до TFT\n",
+            "4. **XAI** - SHAP, Permutation Importance\n",
+            "5. **Backtesting** - оценка торговых стратегий\n",
+            "6. **Production** - API, Registry, Monitoring\n",
+            "\n",
+            "### Ключевые выводы:\n",
+            "\n",
+            "- Предсказание направления цен - сложная задача (~52% accuracy)\n",
+            "- Сложные модели не всегда лучше простых\n",
+            "- Интерпретируемость важна для трейдинга\n",
+            "- Production требует мониторинга и переобучения\n",
+            "\n",
+            "### Дальнейшее развитие:\n",
+            "\n",
+            "- Добавить альтернативные данные (новости, sentiment)\n",
+            "- Улучшить risk management\n",
+            "- Реализовать ensemble моделей\n",
+            "- Добавить A/B тестирование стратегий"
+        ]
+    })
+
+    notebook = {
+        "nbformat": 4,
+        "nbformat_minor": 4,
+        "metadata": {
+            "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+            "language_info": {"name": "python", "version": "3.8.0"}
+        },
+        "cells": cells
+    }
+    return notebook
+
+if __name__ == "__main__":
+    notebook = create_notebook()
+    output_path = "/home/user/test/notebooks/end_to_end_trading/08_production_mlops.ipynb"
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(notebook, f, ensure_ascii=False, indent=1)
+    print(f"Notebook created: {output_path}")
+    print(f"Total cells: {len(notebook['cells'])}")
